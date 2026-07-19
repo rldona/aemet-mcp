@@ -9,6 +9,19 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 _Nada por ahora._
 
+## [0.1.1] - 2026-07-19
+
+### Añadido
+
+- `prediccion_diaria` ahora incluye la **humedad relativa** (máxima/mínima) de cada
+  día, que AEMET ya proporcionaba y no se mostraba.
+
+### Cambiado
+
+- Publicación mediante **Trusted Publishing (OIDC)** desde GitHub Actions, sin
+  `NPM_TOKEN` y con provenance automática (ver
+  [ADR-0011](./docs/adr/0011-trusted-publishing-oidc.md)).
+
 ## [0.1.0] - 2026-07-19
 
 Primera versión pública. Servidor MCP completo para el tiempo oficial de España
@@ -49,5 +62,6 @@ vía la API OpenData de AEMET, con 5 herramientas verificadas contra la API real
 - No se inventan ni mockean datos en producción: si un endpoint de AEMET falla, el
   error se propaga de forma clara.
 
-[No publicado]: https://github.com/rldona/aemet-mcp/compare/v0.1.0...HEAD
+[No publicado]: https://github.com/rldona/aemet-mcp/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/rldona/aemet-mcp/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/rldona/aemet-mcp/releases/tag/v0.1.0

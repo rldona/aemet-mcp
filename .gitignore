@@ -12,3 +12,6 @@ coverage/
 
 # config local de Claude Code
 .claude/
+
+# config de herramientas externas (otra sesión)
+.trunk/
