@@ -93,8 +93,9 @@ Cuatro puntos donde leer el código altera lo que el ticket debe hacer:
 
 ## Tickets
 
-Las filas marcadas con ✅ están entregadas: **v0.2.2** (tickets 1-8), **v0.3.0**
-(9-14) y **v0.4.0** (15-20), todo el 2026-09-07.
+Las filas marcadas con ✅ están entregadas: **v0.2.2** (1-8), **v0.3.0** (9-14),
+**v0.4.0** (15-20) y **v0.4.x** (21-26), todo el 2026-09-07. Queda solo el bloque
+de ampliaciones futuras.
 
 
 | # | ID | Ticket | Prioridad | Tipo | Est. | Depende de | Criterios de aceptación |
@@ -119,12 +120,12 @@ Las filas marcadas con ✅ están entregadas: **v0.2.2** (tickets 1-8), **v0.3.0
 | 18 | A12 | ✅ Añadir la herramienta `buscar_estacion` | P1 | Funcional | S | 17 | Permite buscar estaciones por nombre, provincia o idema; devuelve coordenadas y candidatos estructurados; gestiona con claridad las ambigüedades. Estimación bajada a S: `resolverEstacion` en `src/aemet/estaciones.ts` ya resuelve la mayor parte y el inventario ya trae latitud y longitud; el ticket es exponer lo que existe. |
 | 19 | A13 | ✅ Añadir observación por municipio y estación más cercana | P1 | Funcional | L | 15, 18 | Resuelve un municipio, calcula estaciones próximas y obtiene la observación más adecuada; muestra distancia y hora del dato; permite elegir otra estación. |
 | 20 | A14 | ✅ Añadir avisos meteorológicos por municipio | P1 | Funcional | M | 15, 17 | Acepta nombre o código INE; resuelve automáticamente el área CAP; identifica con claridad el alcance territorial; evita avisos irrelevantes cuando sea posible. |
-| 21 | A18 | Ampliar las pruebas del contrato MCP | P2 | Testing | M | 17 | Sobre la base del ticket 7, se cubren schemas de entrada y salida, invocación, errores y `structuredContent` de cada herramienta. Estimación bajada de L a M porque el handshake ya está cubierto. |
-| 22 | A6 | Evitar peticiones concurrentes duplicadas en caché | P2 | Rendimiento | S | — | `TtlCache.getOrLoad` comparte una única promesa entre cargas simultáneas de la misma clave; un error elimina la operación en vuelo; hay pruebas de concurrencia. Bajado de P1: irrelevante en el servidor stdio, donde las llamadas llegan en serie; solo aplica al uso como librería desde un backend. |
-| 23 | A27 | Añadir logging diagnóstico configurable a `stderr` | P2 | Operabilidad | M | — | Hay niveles configurables y métricas de duración, reintentos y cache hit/miss; nunca se escribe en `stdout` ni se registran API keys ni respuestas sensibles. |
-| 24 | A23 | Automatizar actualizaciones con Dependabot o Renovate | P2 | Mantenimiento | S | 6 | La configuración queda versionada; las actualizaciones se agrupan razonablemente; GitHub Actions y npm se revisan periódicamente. |
-| 25 | A28 | Fijar y endurecer la cadena de publicación | P2 | Supply chain | M | 6 | Las GitHub Actions están fijadas por SHA; la versión de npm está controlada; OIDC y provenance se mantienen; el workflow es reproducible. |
-| 26 | A25 | Automatizar la actualización anual del dataset INE | P2 | Datos | M | 15 | Existe un workflow manual o programado; valida fuente, cantidad, duplicados, códigos, altas y bajas; genera un diff revisable sin publicar automáticamente. |
+| 21 | A18 | ✅ Ampliar las pruebas del contrato MCP | P2 | Testing | M | 17 | Sobre la base del ticket 7, se cubren schemas de entrada y salida, invocación, errores y `structuredContent` de cada herramienta. Estimación bajada de L a M porque el handshake ya está cubierto. |
+| 22 | A6 | ✅ Evitar peticiones concurrentes duplicadas en caché | P2 | Rendimiento | S | — | `TtlCache.getOrLoad` comparte una única promesa entre cargas simultáneas de la misma clave; un error elimina la operación en vuelo; hay pruebas de concurrencia. Bajado de P1: irrelevante en el servidor stdio, donde las llamadas llegan en serie; solo aplica al uso como librería desde un backend. |
+| 23 | A27 | ✅ Añadir logging diagnóstico configurable a `stderr` | P2 | Operabilidad | M | — | Hay niveles configurables y métricas de duración, reintentos y cache hit/miss; nunca se escribe en `stdout` ni se registran API keys ni respuestas sensibles. |
+| 24 | A23 | ✅ Automatizar actualizaciones con Dependabot o Renovate | P2 | Mantenimiento | S | 6 | La configuración queda versionada; las actualizaciones se agrupan razonablemente; GitHub Actions y npm se revisan periódicamente. |
+| 25 | A28 | ✅ Fijar y endurecer la cadena de publicación | P2 | Supply chain | M | 6 | Las GitHub Actions están fijadas por SHA; la versión de npm está controlada; OIDC y provenance se mantienen; el workflow es reproducible. |
+| 26 | A25 | ✅ Automatizar la actualización anual del dataset INE | P2 | Datos | M | 15 | Existe un workflow manual o programado; valida fuente, cantidad, duplicados, códigos, altas y bajas; genera un diff revisable sin publicar automáticamente. |
 
 ## Ampliaciones futuras
 
