@@ -13,7 +13,7 @@ export const TTL = {
 
 export interface AemetClientOptions {
   apiKey: string;
-  /** Inyectable para tests. Por defecto el fetch global de Node. */
+  /** Inyectable para tests. Por defecto el fetch global. */
   fetchImpl?: typeof fetch;
   /** Reintentos ante 429. Por defecto 3. */
   maxRetries?: number;
@@ -24,6 +24,53 @@ export interface AemetClientOptions {
 }
 
 const defaultSleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+/**
+ * Repara texto doblemente codificado ("AndÃºjar" -> "Andújar").
+ *
+ * AEMET declara `charset=ISO-8859-15` sirviendo bytes UTF-8, y algunos fetch
+ * intermedios (el fetch parcheado de Next, proxies) se creen la cabecera y
+ * transcodifican: el texto llega con secuencias "Ã?" en lugar de acentos.
+ * Detectamos ese patrón (Ã + byte de continuación, imposible en español real)
+ * y deshacemos la transcodificación. Idempotente sobre texto sano.
+ */
+export function reparaMojibake(text: string): string {
+  for (let pasada = 0; pasada < 2 && /\u00C3[\u0080-\u00BF]/.test(text); pasada++) {
+    const bytes = new Uint8Array(text.length);
+    let esLatin1 = true;
+    for (let i = 0; i < text.length; i++) {
+      const c = text.charCodeAt(i);
+      if (c > 0xff) {
+        esLatin1 = false;
+        break;
+      }
+      bytes[i] = c;
+    }
+    if (!esLatin1) break;
+    try {
+      text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    } catch {
+      break; // no era una doble codificación: se deja tal cual
+    }
+  }
+  return text;
+}
+
+/**
+ * Aplica reparaMojibake a cada cadena de una estructura JSON, recursivamente.
+ * Cadena a cadena (y no sobre el documento entero) para que un carácter raro
+ * en un campo no impida reparar el resto.
+ */
+export function reparaProfundo<T>(valor: T): T {
+  if (typeof valor === "string") return reparaMojibake(valor) as T;
+  if (Array.isArray(valor)) return valor.map((v) => reparaProfundo(v)) as T;
+  if (valor && typeof valor === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(valor)) out[k] = reparaProfundo(v);
+    return out as T;
+  }
+  return valor;
+}
 
 /**
  * Cliente de la API OpenData de AEMET.
@@ -37,7 +84,7 @@ const defaultSleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms))
  */
 export class AemetClient {
   private readonly apiKey: string;
-  private readonly fetchImpl: typeof fetch;
+  private readonly fetchOverride?: typeof fetch;
   private readonly maxRetries: number;
   private readonly backoffBaseMs: number;
   private readonly sleep: (ms: number) => Promise<void>;
@@ -51,20 +98,27 @@ export class AemetClient {
       );
     }
     this.apiKey = opts.apiKey;
-    this.fetchImpl = opts.fetchImpl ?? globalThis.fetch;
+    this.fetchOverride = opts.fetchImpl;
     this.maxRetries = opts.maxRetries ?? 3;
     this.backoffBaseMs = opts.backoffBaseMs ?? 500;
     this.sleep = opts.sleep ?? defaultSleep;
   }
 
   /**
-   * Ejecuta el patrón de dos pasos y devuelve el contenido de `datos` como texto
-   * decodificado. `decode` controla el charset (AEMET sirve latin1 casi siempre).
+   * Se resuelve en cada llamada (no en el constructor): Next parchea
+   * globalThis.fetch por petición y capturarlo pronto ata una versión rancia.
    */
-  private async fetchDatosText(
-    path: string,
-    decode: "latin1" | "utf-8" = "latin1",
-  ): Promise<string> {
+  private get fetchImpl(): typeof fetch {
+    return this.fetchOverride ?? globalThis.fetch;
+  }
+
+  /**
+   * Ejecuta el patrón de dos pasos y devuelve el contenido de `datos` como texto
+   * decodificado. AEMET mezcla codificaciones según el endpoint (el maestro va
+   * en latin1, la predicción municipal en UTF-8…), así que se auto-detecta:
+   * UTF-8 estricto y, si los bytes no son UTF-8 válido, latin1.
+   */
+  private async fetchDatosText(path: string): Promise<string> {
     const envelope = await this.fetchEnvelope(path);
     if (!envelope.datos) {
       throw new AemetError(
@@ -74,7 +128,13 @@ export class AemetClient {
       );
     }
     const bytes = await this.fetchBytes(envelope.datos);
-    return new TextDecoder(decode).decode(bytes);
+    let text: string;
+    try {
+      text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    } catch {
+      text = new TextDecoder("latin1").decode(bytes);
+    }
+    return reparaMojibake(text);
   }
 
   /** Igual que fetchDatosText pero devuelve los bytes crudos (para tar.gz/CAP). */
@@ -97,9 +157,11 @@ export class AemetClient {
     return this.cache.getOrLoad(
       `json:${path}`,
       async () => {
-        const text = await this.fetchDatosText(path, "latin1");
+        const text = await this.fetchDatosText(path);
         try {
-          return JSON.parse(text) as T;
+          // El servidor de datos de AEMET devuelve codificaciones distintas
+          // según el nodo que responda: reparación también tras el parse.
+          return reparaProfundo(JSON.parse(text)) as T;
         } catch {
           throw new AemetError(
             "PARSE",
@@ -122,7 +184,6 @@ export class AemetClient {
     contexto: string,
     retryHttp5xx = false,
   ): Promise<Response> {
-    let lastError: unknown;
     for (let attempt = 0; attempt <= this.maxRetries; attempt++) {
       try {
         const res = await this.fetchImpl(url, init);
@@ -133,7 +194,6 @@ export class AemetClient {
         }
         return res;
       } catch (cause) {
-        lastError = cause;
         if (attempt < this.maxRetries) {
           await this.sleep(this.backoffBaseMs * 2 ** attempt);
           continue;

@@ -128,6 +128,11 @@ export function extraerAvisos(bytes: Uint8Array, now: number): ResultadoAvisos {
   return { avisos, elaborado };
 }
 
+/** Clave estable de un aviso para deduplicar notificaciones ya enviadas. */
+export function claveAviso(a: Aviso): string {
+  return [a.nivel, a.fenomeno, a.zona, a.onset ?? "", a.expires ?? ""].join("|");
+}
+
 /** Obtiene los avisos vigentes de una CCAA (con caché). */
 export async function obtenerAvisos(
   client: AemetClient,
