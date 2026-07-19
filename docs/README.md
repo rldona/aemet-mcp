@@ -22,6 +22,8 @@
 
 ## Proceso
 
+- [Backlog priorizado de mejoras](./backlog-mejoras.md) — tickets funcionales y
+  técnicos ordenados por prioridad, dependencias y entregas propuestas.
 - [Guía de publicación](./publishing.md) — Trusted Publishing (OIDC) y cómo cortar
   una release.
 - [CHANGELOG](../CHANGELOG.md) — historial de versiones.

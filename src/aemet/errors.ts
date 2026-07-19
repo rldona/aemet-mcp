@@ -8,6 +8,9 @@ export type AemetErrorCode =
   | "RATE_LIMITED" // estado 429: too many requests
   | "UPSTREAM" // otro estado inesperado de AEMET
   | "NETWORK" // fallo de red / fetch
+  | "TIMEOUT" // la petición excedió el tiempo máximo
+  | "TOO_LARGE" // la respuesta supera el tamaño máximo aceptado
+  | "UNSAFE_URL" // AEMET apuntó a una URL a la que no se envía la API key
   | "PARSE"; // respuesta no parseable
 
 export class AemetError extends Error {

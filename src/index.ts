@@ -8,6 +8,13 @@ import { registerAvisosTool } from "./tools/avisos.js";
 import type { GetClient } from "./tools/shared.js";
 
 /**
+ * Versión inyectada por tsup desde package.json (ver `define` en tsup.config.ts).
+ * El fallback solo aplica al ejecutar el fuente sin bundlear (tests, tsx).
+ */
+declare const __PKG_VERSION__: string | undefined;
+const VERSION = typeof __PKG_VERSION__ === "string" ? __PKG_VERSION__ : "0.0.0-dev";
+
+/**
  * Entrypoint del servidor AEMET MCP.
  *
  * Registra las herramientas y conecta por stdio. El cliente AEMET se construye
@@ -17,7 +24,7 @@ import type { GetClient } from "./tools/shared.js";
 async function main(): Promise<void> {
   const server = new McpServer({
     name: "aemet-mcp",
-    version: "0.2.1",
+    version: VERSION,
   });
 
   const apiKey = process.env.AEMET_API_KEY ?? "";
