@@ -59,3 +59,34 @@ export function resolverArea(entrada: string): (typeof AREAS)[number] {
 function listaAreas(): string {
   return `Comunidades válidas: ${AREAS.map((a) => a.nombre).join(", ")}.`;
 }
+
+/** Provincia INE (2 primeros dígitos del código de municipio) -> área CAP. */
+const PROVINCIA_A_AREA: Record<string, string> = {
+  "04": "61", "11": "61", "14": "61", "18": "61", "21": "61", "23": "61", "29": "61", "41": "61", // Andalucía
+  "22": "62", "44": "62", "50": "62", // Aragón
+  "33": "63", // Asturias
+  "07": "64", // Islas Baleares
+  "35": "65", "38": "65", // Canarias
+  "39": "66", // Cantabria
+  "05": "67", "09": "67", "24": "67", "34": "67", "37": "67", "40": "67", "42": "67", "47": "67", "49": "67", // Castilla y León
+  "02": "68", "13": "68", "16": "68", "19": "68", "45": "68", // Castilla-La Mancha
+  "08": "69", "17": "69", "25": "69", "43": "69", // Cataluña
+  "06": "70", "10": "70", // Extremadura
+  "15": "71", "27": "71", "32": "71", "36": "71", // Galicia
+  "28": "72", // Comunidad de Madrid
+  "30": "73", // Región de Murcia
+  "31": "74", // Navarra
+  "01": "75", "20": "75", "48": "75", // País Vasco
+  "26": "76", // La Rioja
+  "03": "77", "12": "77", "46": "77", // Comunidad Valenciana
+  "51": "78", // Ceuta
+  "52": "79", // Melilla
+};
+
+/** Área de avisos CAP para un código INE de municipio (5 dígitos). */
+export function areaParaMunicipio(
+  codigoMunicipio: string,
+): (typeof AREAS)[number] | undefined {
+  const codigo = PROVINCIA_A_AREA[codigoMunicipio.slice(0, 2)];
+  return codigo ? AREAS.find((a) => a.codigo === codigo) : undefined;
+}
