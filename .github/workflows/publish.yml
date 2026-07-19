@@ -1,9 +1,16 @@
 name: Publish to npm
 
-# Publica @rldona/aemet-mcp en el registro público de npm al crear una Release.
-# Requiere el secret NPM_TOKEN (token "Automation" de tu cuenta npmjs.com/~rldona):
-#   Settings -> Secrets and variables -> Actions -> New repository secret
-#     NPM_TOKEN = npm_xxx...
+# Publica @rldona/aemet-mcp en npm mediante TRUSTED PUBLISHING (OIDC): sin token.
+# GitHub Actions presenta un token OIDC que npm verifica contra el "Trusted
+# Publisher" configurado en el paquete, así que NO se necesita NPM_TOKEN y la
+# publicación es directa (sin staging), con provenance automática.
+#
+# Requisito de una sola vez (en npmjs.com, página del paquete -> Settings ->
+# Trusted Publisher): enlazar el paquete a este repo y a este workflow:
+#   Publisher: GitHub Actions
+#   Organization or user: rldona
+#   Repository: aemet-mcp
+#   Workflow filename: publish.yml
 
 on:
   release:
@@ -15,14 +22,18 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      id-token: write # habilita provenance en npm
+      id-token: write # imprescindible para OIDC + provenance
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
-          registry-url: https://registry.npmjs.org
+          node-version: 22
+
+      # Trusted Publishing (OIDC) requiere npm >= 11.5.1; el que trae Node aún es
+      # 10.x, así que lo actualizamos.
+      - name: Actualiza npm a una versión con soporte OIDC
+        run: npm install -g npm@latest
 
       - run: npm ci
 
@@ -42,7 +53,7 @@ jobs:
           npm test
           npm run build
 
-      - name: Publish
-        run: npm publish --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      # Sin NODE_AUTH_TOKEN: npm detecta el entorno OIDC de Actions y se autentica
+      # contra el Trusted Publisher. La provenance se genera automáticamente.
+      - name: Publish (OIDC)
+        run: npm publish

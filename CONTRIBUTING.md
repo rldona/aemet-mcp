@@ -65,6 +65,6 @@ Descarga el diccionario del INE y regenera `src/data/municipios.json`.
 
 ## Publicar (mantenedores)
 
-La publicación la hace CI al crear una Release (ver [publish.yml](.github/workflows/publish.yml)),
-o manualmente con `npm publish` tras `npm login` (el paquete apunta al registro
-público vía `publishConfig`).
+La publicación la hace CI al crear una Release mediante **Trusted Publishing
+(OIDC)**, sin token. Ver la [guía de publicación](./docs/publishing.md) y
+[ADR-0011](./docs/adr/0011-trusted-publishing-oidc.md).

@@ -18,6 +18,7 @@ formato de [Michael Nygard](https://cognitect.com/blog/2011/11/15/documenting-ar
 | [0008](./0008-codigos-area-avisos.md) | Códigos de área de avisos verificados empíricamente | Aceptada |
 | [0009](./0009-nombre-paquete-scoped.md) | Nombre de paquete con scope `@rldona` | Aceptada |
 | [0010](./0010-propagacion-honesta-errores.md) | Propagación honesta de errores (sin mocks) | Aceptada |
+| [0011](./0011-trusted-publishing-oidc.md) | Publicación con Trusted Publishing (OIDC) | Aceptada |
 
 ## Plantilla
 

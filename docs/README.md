@@ -20,6 +20,8 @@
 
 ## Proceso
 
+- [Guía de publicación](./publishing.md) — Trusted Publishing (OIDC) y cómo cortar
+  una release.
 - [CHANGELOG](../CHANGELOG.md) — historial de versiones.
 - [Notas de la release](./release-notes/) — resúmenes por versión.
 - [Política de seguridad](../SECURITY.md) — cómo reportar problemas y manejo de la
