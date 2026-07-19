@@ -1,10 +1,11 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { TTL } from "../aemet/client.js";
-import { resolverEstacion } from "../aemet/estaciones.js";
-import { formatObservacion } from "../aemet/format.js";
+import { resolverEstacion, type EstacionResuelta } from "../aemet/estaciones.js";
+import { formatObservacion, observacionMasReciente } from "../aemet/format.js";
 import type { Observacion } from "../aemet/types.js";
-import { runTool, text, type GetClient } from "./shared.js";
+import { runTool, structured, text, type GetClient } from "./shared.js";
+import { aSalidaObservacion, salidaObservacion } from "./schemas.js";
 
 /** Estación por defecto si no se indica ninguna: Madrid-Retiro. */
 const DEFAULT_IDEMA = "3195";
@@ -18,9 +19,13 @@ export function registerObservacionTool(
     {
       title: "Observación de estación",
       description:
-        "Última observación meteorológica convencional de una estación de AEMET: " +
-        "temperatura, humedad, viento, precipitación y presión. Acepta el nombre de " +
-        "la estación/ciudad o su identificador idema. Si se omite, usa Madrid-Retiro.",
+        "Última observación meteorológica convencional de una ESTACIÓN concreta de " +
+        "AEMET: temperatura, humedad, viento, precipitación y presión. Acepta el " +
+        "nombre de la estación o su identificador idema; si se omite, usa " +
+        "Madrid-Retiro.\n" +
+        "Si lo que quieres es el tiempo actual de un pueblo o ciudad, usa " +
+        "observacion_municipio: esta exige saber qué estación mide ese sitio, y " +
+        "muchas estaciones del inventario no publican observación.",
       inputSchema: {
         estacion: z
           .string()
@@ -30,24 +35,27 @@ export function registerObservacionTool(
               "(p. ej. 'Madrid, Retiro'). Si se omite, se usa Madrid-Retiro (3195).",
           ),
       },
+      outputSchema: salidaObservacion,
     },
     async ({ estacion }) =>
       runTool(async () => {
         const client = getClient();
         let idema = DEFAULT_IDEMA;
-        let nombre: string | undefined;
+        let est: EstacionResuelta | undefined;
 
         if (estacion && estacion.trim()) {
-          const est = await resolverEstacion(client, estacion);
+          est = await resolverEstacion(client, estacion);
           idema = est.idema;
-          nombre = est.nombre;
         }
 
         const data = await client.fetchJson<Observacion[]>(
           `/observacion/convencional/datos/estacion/${idema}`,
           TTL.observacion,
         );
-        return text(formatObservacion(data, nombre));
+        const texto = formatObservacion(data, est?.nombre);
+        const ultima = observacionMasReciente(data);
+        if (!ultima) return text(texto);
+        return structured(texto, aSalidaObservacion(ultima, est));
       }),
   );
 }

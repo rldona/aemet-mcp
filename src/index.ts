@@ -4,8 +4,17 @@ import { AemetClient } from "./aemet/client.js";
 import { registerBuscarMunicipio } from "./tools/municipio.js";
 import { registerPrediccionTools } from "./tools/prediccion.js";
 import { registerObservacionTool } from "./tools/observacion.js";
-import { registerAvisosTool } from "./tools/avisos.js";
+import { registerAvisosTool, registerAvisosMunicipio } from "./tools/avisos.js";
+import { registerBuscarEstacion } from "./tools/estacion.js";
+import { registerObservacionMunicipio } from "./tools/observacionMunicipio.js";
 import type { GetClient } from "./tools/shared.js";
+
+/**
+ * Versión inyectada por tsup desde package.json (ver `define` en tsup.config.ts).
+ * El fallback solo aplica al ejecutar el fuente sin bundlear (tests, tsx).
+ */
+declare const __PKG_VERSION__: string | undefined;
+const VERSION = typeof __PKG_VERSION__ === "string" ? __PKG_VERSION__ : "0.0.0-dev";
 
 /**
  * Entrypoint del servidor AEMET MCP.
@@ -17,7 +26,7 @@ import type { GetClient } from "./tools/shared.js";
 async function main(): Promise<void> {
   const server = new McpServer({
     name: "aemet-mcp",
-    version: "0.2.1",
+    version: VERSION,
   });
 
   const apiKey = process.env.AEMET_API_KEY ?? "";
@@ -28,15 +37,18 @@ async function main(): Promise<void> {
   };
 
   registerBuscarMunicipio(server);
+  registerBuscarEstacion(server, getClient);
   registerPrediccionTools(server, getClient);
   registerObservacionTool(server, getClient);
+  registerObservacionMunicipio(server, getClient);
   registerAvisosTool(server, getClient);
+  registerAvisosMunicipio(server, getClient);
 
   const transport = new StdioServerTransport();
   await server.connect(transport);
 
   // stdout es el canal del protocolo MCP: los diagnósticos van a stderr.
-  console.error("[aemet-mcp] servidor iniciado (stdio) — 5 herramientas");
+  console.error("[aemet-mcp] servidor iniciado (stdio) — 8 herramientas");
 }
 
 main().catch((error) => {
