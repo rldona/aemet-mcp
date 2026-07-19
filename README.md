@@ -5,9 +5,9 @@ Da a Claude Desktop, Cursor y cualquier cliente MCP acceso a la API pública
 [OpenData de AEMET](https://opendata.aemet.es/): predicción por municipio y
 observación de estaciones, con los datos ya resueltos y formateados.
 
-> Estado: en construcción. Cliente AEMET y las 4 herramientas MVP funcionando
-> (buscar_municipio, prediccion_diaria, prediccion_horaria, observacion_estacion).
-> Los avisos meteorológicos llegan en la Fase 3.
+> Estado: las 5 herramientas funcionando y verificadas contra la API real de
+> AEMET (buscar_municipio, prediccion_diaria, prediccion_horaria,
+> observacion_estacion, avisos).
 
 ## Por qué
 
@@ -66,7 +66,7 @@ En `~/.cursor/mcp.json` (o Settings → MCP):
 | `prediccion_diaria`    | `municipio` (nombre o código), `dias?`| Predicción diaria (1-7 días): máx/mín, cielo, prob. lluvia, viento. |
 | `prediccion_horaria`   | `municipio`, `dias?`                  | Predicción hora a hora (hoy y mañana). |
 | `observacion_estacion` | `estacion?` (idema o nombre)          | Última observación de una estación (por defecto Madrid-Retiro). |
-| `avisos` *(Fase 3)*    | `area` (CCAA)                         | Avisos meteorológicos vigentes. |
+| `avisos`               | `area` (CCAA)                         | Avisos meteorológicos vigentes (nivel, zona, periodo). |
 
 Los nombres se resuelven a código INE con tolerancia a acentos/mayúsculas; si un
 nombre es ambiguo (p. ej. "Villanueva"), la herramienta devuelve las opciones con
