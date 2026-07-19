@@ -22,34 +22,47 @@ export interface Municipio {
 }
 
 // ---------------------------------------------------------------------------
-// Predicción específica de municipio (diaria y horaria comparten envoltorio).
-// La respuesta es un array con un único elemento.
+// Predicción específica de municipio. La respuesta es un array con un único
+// elemento. Diaria y horaria comparten envoltorio pero los días difieren.
 // ---------------------------------------------------------------------------
 
-export interface PrediccionMunicipio {
+interface PrediccionBase<D> {
   nombre: string;
   provincia: string;
   elaborado: string;
-  prediccion: {
-    dia: PrediccionDia[];
-  };
+  prediccion: { dia: D[] };
 }
 
-/**
- * Un día de predicción. Los campos varían entre diaria y horaria; se modelan
- * como opcionales y se leen defensivamente en el formateador.
- */
-export interface PrediccionDia {
+/** Predicción diaria (varios días con máx/mín y periodos). */
+export type PrediccionDiariaMunicipio = PrediccionBase<DiaDiaria>;
+
+/** Predicción horaria (día a día con datos hora a hora). */
+export type PrediccionHorariaMunicipio = PrediccionBase<DiaHoraria>;
+
+/** Alias histórico: la diaria es la representación "canónica" de municipio. */
+export type PrediccionMunicipio = PrediccionDiariaMunicipio;
+
+export interface DiaDiaria {
   fecha: string;
-  // --- Diaria ---
   temperatura?: { maxima?: number; minima?: number; dato?: DatoHorario[] };
+  humedadRelativa?: { maxima?: number; minima?: number; dato?: DatoHorario[] };
   estadoCielo?: EstadoCielo[];
   probPrecipitacion?: RangoHorario[];
   viento?: VientoDiario[];
-  humedadRelativa?: { maxima?: number; minima?: number; dato?: DatoHorario[] };
-  // --- Horaria ---
-  vientoAndRachaMax?: VientoHorario[];
+}
+
+export interface DiaHoraria {
+  fecha: string;
+  /** Temperatura hora a hora: value en °C (string), periodo = hora "03". */
+  temperatura?: ValorPeriodo[];
+  estadoCielo?: EstadoCielo[];
   precipitacion?: RangoHorario[];
+  vientoAndRachaMax?: VientoHorario[];
+}
+
+export interface ValorPeriodo {
+  value?: string;
+  periodo?: string;
 }
 
 export interface EstadoCielo {
