@@ -18,6 +18,9 @@ formateados en texto legible.
 - ⚙️ Un solo `npx`, sin backend propio. Caché en memoria y reintentos ante fallos
   transitorios de AEMET.
 - 🔒 Sin datos inventados: si un endpoint de AEMET falla, se propaga un error claro.
+- 📚 **También librería**: importa el núcleo de AEMET (`AemetClient`, resolvers,
+  avisos, formateadores) en cualquier backend Node/TS — ver
+  [Uso como librería](#uso-como-librería).
 
 ## Por qué
 
@@ -134,6 +137,63 @@ Andalucía, Aragón, Asturias, Islas Baleares, Canarias, Cantabria, Castilla y L
 Castilla-La Mancha, Cataluña, Extremadura, Galicia, Comunidad de Madrid, Región de
 Murcia, Navarra, País Vasco, La Rioja, Comunidad Valenciana, Ceuta, Melilla.
 Se aceptan alias comunes (p. ej. "euskadi", "madrid", "valencia").
+
+## Uso como librería
+
+Además del servidor MCP, el paquete exporta su **núcleo de AEMET** como librería,
+para consumirlo desde cualquier backend Node/TS (una web del tiempo, un cron de
+avisos, etc.) **sin pasar por MCP**. Toda la fontanería difícil ya está resuelta:
+patrón de dos pasos, codificación inconsistente + reparación de mojibake, caché con
+TTL, reintentos con backoff, dataset de municipios del INE, áreas CAP y parseo de
+avisos (tar + CAP XML).
+
+> ⚠️ La API key va **siempre en el servidor** (variable de entorno), nunca en el
+> navegador.
+
+```ts
+import {
+  AemetClient,
+  resolverMunicipio,
+  resolverArea,
+  obtenerAvisos,
+  formatDiaria,
+  type PrediccionDiariaMunicipio,
+} from "@rldona/aemet-mcp";
+
+const client = new AemetClient({ apiKey: process.env.AEMET_API_KEY! });
+
+// 1) Nombre -> código INE (offline; dataset del INE bundleado, sin gastar cuota)
+const madrid = resolverMunicipio("Madrid"); // { codigo: "28079", nombre: "Madrid" }
+
+// 2) Predicción diaria TIPADA (dos pasos + encoding + caché ya resueltos)
+const [pred] = await client.fetchJson<PrediccionDiariaMunicipio[]>(
+  `/prediccion/especifica/municipio/diaria/${madrid.codigo}`,
+);
+console.log(pred.prediccion.dia[0]?.temperatura); // { maxima, minima, dato, ... }
+
+// (opcional) texto legible ya formateado
+console.log(formatDiaria(pred, 3));
+
+// 3) Avisos vigentes de una CCAA (descomprime el tar.gz y parsea el CAP por ti)
+const andalucia = resolverArea("Andalucía"); // { codigo: "61", nombre: "Andalucía" }
+const { avisos } = await obtenerAvisos(client, andalucia.codigo);
+```
+
+### Qué se exporta
+
+| Categoría | Exports |
+|-----------|---------|
+| Cliente | `AemetClient`, `TTL`, `AemetError`, `describeEstado`, `TtlCache` |
+| Encoding | `reparaMojibake`, `reparaProfundo` |
+| Municipios | `resolverMunicipio`, `buscarMunicipios`, `municipioPorCodigo`, `esCodigoINE`, `normalize`, `totalMunicipios` |
+| Áreas / avisos | `AREAS`, `resolverArea`, `areaParaMunicipio`, `obtenerAvisos`, `extraerAvisos`, `parseCapAlert`, `claveAviso` |
+| Estaciones | `resolverEstacion`, `pareceIdema` |
+| Formateadores | `formatDiaria`, `formatHoraria`, `formatObservacion`, `formatAvisos`, `formatMunicipios` |
+| Bajo nivel | `untar` |
+| Tipos | `PrediccionDiariaMunicipio`, `PrediccionHorariaMunicipio`, `Observacion`, `Municipio`, `Aviso`, `NivelAviso`, `ResultadoAvisos`, … |
+
+El `AemetClient` acepta opciones (`maxRetries`, `backoffBaseMs`, `fetchImpl`,
+`sleep`) además de `apiKey`. Los tipos van incluidos (`dist/lib.d.ts`).
 
 ## Cómo funciona (interno)
 
