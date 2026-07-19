@@ -71,6 +71,10 @@ export function formatDiaria(pred: PrediccionDiariaMunicipio, maxDias: number): 
     if (viento?.velocidad !== undefined) {
       partes.push(`Viento: ${viento.direccion ?? ""} ${viento.velocidad} km/h`.trim());
     }
+    const hr = dia.humedadRelativa;
+    if (hr?.maxima !== undefined || hr?.minima !== undefined) {
+      partes.push(`Humedad: ${fmtNum(hr.maxima, "%")} / ${fmtNum(hr.minima, "%")}`);
+    }
     out.push(`${fechaLegible(dia.fecha)}`);
     out.push(partes.join("  |  "));
     out.push("");
