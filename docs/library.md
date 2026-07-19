@@ -170,9 +170,11 @@ const opciones = buscarMunicipios(q, 10); // [{ codigo, nombre }, ...]
 ### Áreas (CCAA)
 
 ```ts
-AREAS: Array<{ codigo: string; nombre: string; alias?: string[] }>
-resolverArea(entrada: string): { codigo; nombre; alias? }  // nombre/alias o código de 2 díg.
-areaParaMunicipio(codigoMunicipio: string): { codigo; nombre } | undefined
+type Area = { codigo: string; nombre: string; alias?: string[] };
+
+AREAS: Area[]
+resolverArea(entrada: string): Area                        // nombre/alias o código de 2 díg.
+areaParaMunicipio(codigoMunicipio: string): Area | undefined
 ```
 
 `areaParaMunicipio` deduce la CCAA a partir de la provincia (2 primeros dígitos del
