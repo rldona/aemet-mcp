@@ -9,6 +9,30 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 _Nada por ahora._
 
+## [0.4.2] - 2026-09-07
+
+Correcciones salidas de probar el servidor contra la API real de AEMET.
+
+### Corregido
+
+- **Tres estaciones perdían sus coordenadas.** AEMET publica algunos valores con
+  60 segundos (`364460N` son 36º44'60", es decir 36º45'00"): un acarreo sin
+  normalizar, no un dato corrupto. `parseCoordenadaDMS` los rechazaba por
+  estricto y dejaba fuera a RONDA INSTITUTO, MARBELLA y MOLLERUSSA. Ahora se
+  aceptan hasta 60; por encima sigue siendo basura. Cobertura del inventario:
+  926 de 926 estaciones con coordenadas, todas dentro del rango de España.
+
+- **La descripción de `buscar_municipio` inducía una llamada de más.** Decía
+  "úsala PRIMERO porque las predicciones necesitan el código INE", y eso dejó de
+  ser cierto: `prediccion_diaria`, `prediccion_horaria`, `observacion_municipio` y
+  `avisos_municipio` aceptan el nombre y lo resuelven solas. Ahora dice cuándo
+  hace falta de verdad (pedir el código, o desambiguar tras un error).
+
+- Las descripciones de `prediccion_diaria` y `prediccion_horaria` no mencionaban
+  que aceptan nombres ni qué pasa si son ambiguos, y `observacion_estacion` no
+  apuntaba a `observacion_municipio` como alternativa para preguntas por
+  pueblo o ciudad. Son el texto con el que un agente decide qué herramienta usar.
+
 ## [0.4.1] - 2026-09-07
 
 Calidad interna y cadena de suministro (tickets 21-26 de

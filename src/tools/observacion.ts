@@ -19,9 +19,13 @@ export function registerObservacionTool(
     {
       title: "Observación de estación",
       description:
-        "Última observación meteorológica convencional de una estación de AEMET: " +
-        "temperatura, humedad, viento, precipitación y presión. Acepta el nombre de " +
-        "la estación/ciudad o su identificador idema. Si se omite, usa Madrid-Retiro.",
+        "Última observación meteorológica convencional de una ESTACIÓN concreta de " +
+        "AEMET: temperatura, humedad, viento, precipitación y presión. Acepta el " +
+        "nombre de la estación o su identificador idema; si se omite, usa " +
+        "Madrid-Retiro.\n" +
+        "Si lo que quieres es el tiempo actual de un pueblo o ciudad, usa " +
+        "observacion_municipio: esta exige saber qué estación mide ese sitio, y " +
+        "muchas estaciones del inventario no publican observación.",
       inputSchema: {
         estacion: z
           .string()
