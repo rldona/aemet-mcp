@@ -502,7 +502,10 @@ export class AemetClient {
           await this.esperar(presupuesto, res);
           continue;
         }
-        throw this.errorForEstado(429, envelope?.descripcion);
+        // Si AEMET dice cuánto esperar, se traslada al error: quien llama puede
+        // decidir con un número en vez de a ojo.
+        const indicado = retryAfterMs(cabecera(res, "retry-after"), Date.now());
+        throw this.errorForEstado(429, envelope?.descripcion, indicado ?? undefined);
       }
 
       throw this.errorForEstado(estado, envelope?.descripcion);
@@ -522,15 +525,22 @@ export class AemetClient {
     }
   }
 
-  private errorForEstado(estado: number, descripcion?: string): AemetError {
-    const message = describeEstado(estado, descripcion);
+  private errorForEstado(
+    estado: number,
+    descripcion?: string,
+    retryAfter?: number,
+  ): AemetError {
+    let message = describeEstado(estado, descripcion);
     switch (estado) {
       case 401:
         return new AemetError("UNAUTHORIZED", message, 401);
       case 404:
         return new AemetError("NOT_FOUND", message, 404);
       case 429:
-        return new AemetError("RATE_LIMITED", message, 429);
+        if (retryAfter !== undefined) {
+          message += ` AEMET indica que se puede reintentar en ${Math.ceil(retryAfter / 1000)} s.`;
+        }
+        return new AemetError("RATE_LIMITED", message, 429, retryAfter);
       default:
         return new AemetError("UPSTREAM", message, estado);
     }

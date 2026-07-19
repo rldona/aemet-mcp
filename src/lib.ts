@@ -38,6 +38,8 @@ export {
   esCodigoINE,
   etiquetaMunicipio,
   municipioPorCodigo,
+  municipiosDeIsla,
+  municipiosDeProvincia,
   nombreNatural,
   normalize,
   resolverMunicipio,
@@ -52,6 +54,31 @@ export {
 } from "./aemet/provincias.js";
 
 export { AREAS, areaParaMunicipio, resolverArea } from "./aemet/areas.js";
+
+export { notaNombreCompartido } from "./aemet/homonimos.js";
+
+export {
+  PROVINCIAS_INSULARES,
+  islaDeMunicipio,
+  islas,
+  resolverIsla,
+  type Isla,
+} from "./aemet/islas.js";
+
+export { isoConOffset, type ZonaSupuesta } from "./aemet/fechas.js";
+
+export {
+  CALMA,
+  RUMBOS,
+  gradosDesdeRumbo,
+  msAKmh,
+  rumboDesdeGrados,
+  textoViento,
+  vientoDeObservacion,
+  vientoDePrediccion,
+  type Rumbo,
+  type VientoNormalizado,
+} from "./aemet/viento.js";
 
 export {
   DEFAULT_MAX_DESCOMPRIMIDO,
@@ -106,6 +133,7 @@ export {
   observacionMasReciente,
   pickPeriodo,
   probPrecipitacionDia,
+  seleccionarDias,
 } from "./aemet/format.js";
 
 export type {

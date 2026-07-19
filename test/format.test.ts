@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   formatDiaria,
+  seleccionarDias,
   formatObservacion,
   observacionMasReciente,
   probPrecipitacionDia,
@@ -28,11 +29,11 @@ const pred: PrediccionDiariaMunicipio = {
 
 describe("formatDiaria", () => {
   it("incluye máx/mín, cielo, prob. precip, viento y humedad", () => {
-    const out = formatDiaria(pred, 7);
+    const out = formatDiaria(pred, pred.prediccion.dia);
     expect(out).toContain("Máx 36 °C / Mín 22 °C");
     expect(out).toContain("Cielo: Poco nuboso");
     expect(out).toContain("Prob. precip.: 0%");
-    expect(out).toContain("Viento: SO 15 km/h (racha 30 km/h)");
+    expect(out).toContain("Viento: SO a 15 km/h (racha 30 km/h)");
     expect(out).toContain("Humedad: 70 % / 20 %");
   });
 
@@ -43,8 +44,8 @@ describe("formatDiaria", () => {
         dia: [{ ...pred.prediccion.dia[0]!, rachaMax: [{ periodo: "00-24", value: "" }] }],
       },
     };
-    const out = formatDiaria(sinRacha, 7);
-    expect(out).toContain("Viento: SO 15 km/h");
+    const out = formatDiaria(sinRacha, sinRacha.prediccion.dia);
+    expect(out).toContain("Viento: SO a 15 km/h");
     expect(out).not.toContain("racha");
   });
 
@@ -53,7 +54,7 @@ describe("formatDiaria", () => {
       ...pred,
       prediccion: { dia: [{ ...pred.prediccion.dia[0]!, humedadRelativa: undefined }] },
     };
-    expect(formatDiaria(sinHr, 7)).not.toContain("Humedad:");
+    expect(formatDiaria(sinHr, sinHr.prediccion.dia)).not.toContain("Humedad:");
   });
 
   it("respeta el límite de días", () => {
@@ -66,7 +67,7 @@ describe("formatDiaria", () => {
         ],
       },
     };
-    const out = formatDiaria(dosDias, 1);
+    const out = formatDiaria(dosDias, seleccionarDias(dosDias.prediccion.dia, { max: 1 }));
     expect(out).toContain("19/07");
     expect(out).not.toContain("20/07");
   });
@@ -180,22 +181,22 @@ describe("formatDiaria con las formas reales de AEMET", () => {
   };
 
   it("usa el agregado 00-24 cuando existe, no el primer subperiodo", () => {
-    const texto = formatDiaria(predReal, 1);
+    const texto = formatDiaria(predReal, seleccionarDias(predReal.prediccion.dia, { max: 1 }));
     // El 00-24 vale 5%; el subperiodo 00-12 vale 0%. Si cogiera el primer
     // subperiodo por error, aquí saldría 0%.
     expect(texto).toContain("Prob. precip.: 5%");
     expect(texto).toContain("Intervalos nubosos");
-    expect(texto).toContain("NE 10 km/h");
+    expect(texto).toContain("NE a 10 km/h");
   });
 
   it("usa el único elemento sin periodo en los días lejanos", () => {
-    const texto = formatDiaria(predReal, 2);
+    const texto = formatDiaria(predReal, seleccionarDias(predReal.prediccion.dia, { max: 2 }));
     expect(texto).toContain("Despejado");
     expect(texto).toContain("Máx 29 °C");
   });
 
   it("no rompe con probabilidad numérica (AEMET la manda como número)", () => {
-    const texto = formatDiaria(predReal, 2);
+    const texto = formatDiaria(predReal, seleccionarDias(predReal.prediccion.dia, { max: 2 }));
     expect(texto).toContain("Prob. precip.: 0%");
   });
 });
