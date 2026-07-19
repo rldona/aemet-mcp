@@ -49,6 +49,8 @@ export interface DiaDiaria {
   estadoCielo?: EstadoCielo[];
   probPrecipitacion?: RangoHorario[];
   viento?: VientoDiario[];
+  /** Racha máxima de viento (km/h); `value` puede venir vacío si no hay dato. */
+  rachaMax?: RangoHorario[];
 }
 
 export interface DiaHoraria {

@@ -15,6 +15,7 @@ const pred: PrediccionDiariaMunicipio = {
         estadoCielo: [{ periodo: "00-24", descripcion: "Poco nuboso" }],
         probPrecipitacion: [{ periodo: "00-24", value: "0" }],
         viento: [{ periodo: "00-24", direccion: "SO", velocidad: 15 }],
+        rachaMax: [{ periodo: "00-24", value: "30" }],
       },
     ],
   },
@@ -26,8 +27,20 @@ describe("formatDiaria", () => {
     expect(out).toContain("Máx 36 °C / Mín 22 °C");
     expect(out).toContain("Cielo: Poco nuboso");
     expect(out).toContain("Prob. precip.: 0%");
-    expect(out).toContain("Viento: SO 15 km/h");
+    expect(out).toContain("Viento: SO 15 km/h (racha 30 km/h)");
     expect(out).toContain("Humedad: 70 % / 20 %");
+  });
+
+  it("omite la racha si AEMET la trae vacía", () => {
+    const sinRacha: PrediccionDiariaMunicipio = {
+      ...pred,
+      prediccion: {
+        dia: [{ ...pred.prediccion.dia[0]!, rachaMax: [{ periodo: "00-24", value: "" }] }],
+      },
+    };
+    const out = formatDiaria(sinRacha, 7);
+    expect(out).toContain("Viento: SO 15 km/h");
+    expect(out).not.toContain("racha");
   });
 
   it("omite la humedad si AEMET no la trae", () => {

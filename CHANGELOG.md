@@ -9,6 +9,18 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 _Nada por ahora._
 
+## [0.1.2] - 2026-07-19
+
+### Añadido
+
+- `prediccion_diaria` muestra la **racha máxima de viento** (km/h) junto al viento,
+  cuando AEMET la proporciona.
+
+### Cambiado
+
+- Las publicaciones incluyen **provenance** (`npm publish --provenance`); la 0.1.1
+  se publicó sin atestación por un flag omitido.
+
 ## [0.1.1] - 2026-07-19
 
 ### Añadido
@@ -62,6 +74,7 @@ vía la API OpenData de AEMET, con 5 herramientas verificadas contra la API real
 - No se inventan ni mockean datos en producción: si un endpoint de AEMET falla, el
   error se propaga de forma clara.
 
-[No publicado]: https://github.com/rldona/aemet-mcp/compare/v0.1.1...HEAD
+[No publicado]: https://github.com/rldona/aemet-mcp/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/rldona/aemet-mcp/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/rldona/aemet-mcp/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/rldona/aemet-mcp/releases/tag/v0.1.0
