@@ -1,20 +1,29 @@
 import { defineConfig } from "tsup";
 
-export default defineConfig({
-  entry: ["src/index.ts"],
-  format: ["esm"],
-  target: "node18",
-  platform: "node",
+const base = {
+  format: ["esm"] as const,
+  target: "node18" as const,
+  platform: "node" as const,
   outDir: "dist",
-  clean: true,
   sourcemap: true,
-  dts: false,
-  // El dataset de municipios se importa como JSON y se bundlea en el binario.
-  loader: {
-    ".json": "json",
+  // El dataset de municipios se importa como JSON y se bundlea.
+  loader: { ".json": "json" as const },
+};
+
+export default defineConfig([
+  // Servidor MCP (bin): con shebang para `npx aemet-mcp`.
+  {
+    ...base,
+    entry: ["src/index.ts"],
+    clean: true,
+    dts: false,
+    banner: { js: "#!/usr/bin/env node" },
   },
-  // Shebang para que `npx aemet-mcp` sea ejecutable directamente.
-  banner: {
-    js: "#!/usr/bin/env node",
+  // Librería: la misma fontanería de AEMET, importable desde cualquier backend.
+  {
+    ...base,
+    entry: ["src/lib.ts"],
+    clean: false, // no pisar el bin recién generado
+    dts: true,
   },
-});
+]);

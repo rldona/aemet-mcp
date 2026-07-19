@@ -9,6 +9,32 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 _Nada por ahora._
 
+## [0.2.0] - 2026-07-19
+
+### Añadido
+
+- **API de librería**: el paquete ahora es importable (`import { AemetClient, … }
+  from "@rldona/aemet-mcp"`) además de ejecutable como servidor MCP. Expone el
+  cliente de dos pasos, municipios (búsqueda/resolución), áreas CAP, avisos
+  (tar + CAP XML), estaciones, formateadores y tipos. Entrada `src/lib.ts`,
+  con declaraciones de tipos (`dist/lib.d.ts`).
+- `areaParaMunicipio(codigoINE)`: resuelve el área de avisos CAP (CCAA) a partir
+  del código INE de un municipio (mapa provincia → área).
+- `claveAviso(aviso)`: clave estable de un aviso para deduplicación.
+
+### Corregido
+
+- **Acentos rotos (mojibake) en respuestas de AEMET**: el servidor de datos
+  devuelve codificaciones distintas según el nodo que responda (a veces UTF-8,
+  a veces doblemente codificado, siempre declarando `charset=ISO-8859-15`).
+  Ahora se decodifica con auto-detección (UTF-8 estricto con fallback latin1)
+  y se repara el mojibake cadena a cadena tras el `JSON.parse`
+  (`reparaMojibake`/`reparaProfundo`). Descubierto en producción en notemojes.com
+  ("AndÃºjar" → "Andújar").
+- El `fetch` global se resuelve en cada llamada en lugar de capturarse en el
+  constructor (evita quedarse con un `fetch` parcheado obsoleto en runtimes
+  que lo instrumentan, como Next.js).
+
 ## [0.1.2] - 2026-07-19
 
 ### Añadido
