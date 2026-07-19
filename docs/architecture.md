@@ -25,7 +25,7 @@ flowchart LR
 src/
   index.ts            Entrypoint: crea McpServer, registra tools, conecta stdio
   aemet/
-    client.ts         AemetClient: patrón de dos pasos, latin1, estado, reintentos
+    client.ts         AemetClient: dos pasos, encoding auto+mojibake, estado, reintentos
     cache.ts          TtlCache: caché en memoria con TTL
     errors.ts         AemetError + mapeo de estados a mensajes
     municipios.ts     Resolver nombre → código INE (dataset bundleado)
@@ -62,17 +62,19 @@ sequenceDiagram
   C->>A: GET endpoint (header api_key)
   A-->>C: { estado: 200, datos: "https://.../sh/xyz" }
   C->>A: GET url de `datos`
-  A-->>C: fichero (ISO-8859-1)
-  C->>C: TextDecoder('latin1') + JSON.parse
+  A-->>C: fichero (UTF-8 o latin1, según recurso/CDN)
+  C->>C: auto-detecta encoding + reparaMojibake + JSON.parse + reparaProfundo
   C-->>T: objeto tipado
 ```
 
 Puntos clave encapsulados en `AemetClient`:
 
 - **Cabecera** `api_key: <KEY>` en ambos saltos.
-- **Encoding latin1**: tanto el fichero de `datos` como el sobre de error se
-  decodifican con `TextDecoder('latin1')` (los acentos de las descripciones se
-  romperían con UTF-8).
+- **Encoding inconsistente**: AEMET mezcla UTF-8 y latin1 según el recurso/nodo CDN
+  (y a veces declara `charset` erróneo → mojibake). El cliente **auto-detecta**
+  (UTF-8 estricto → latin1) y **repara mojibake** (`reparaMojibake` /
+  `reparaProfundo`); el sobre de error se decodifica en latin1. Ver
+  [ADR-0012](./adr/0012-codificacion-autodetectada-mojibake.md).
 - **Mapeo de estado** (`estado` del sobre, o el status HTTP si no hay sobre):
   `200` OK · `401` → `UNAUTHORIZED` · `404` → `NOT_FOUND` · `429` → `RATE_LIMITED`
   · resto → `UPSTREAM`.
@@ -167,7 +169,7 @@ Mínimas por diseño (ver [ADR-0002](./adr/0002-sin-dependencias-pesadas.md)):
 
 ## 10. Testing
 
-- **Unitarios** con `fetch`/`sleep` inyectados: cubren los dos saltos, latin1, cada
+- **Unitarios** con `fetch`/`sleep` inyectados: cubren los dos saltos, encoding, cada
   código de estado, reintentos, caché, resolver de municipios, untar y parseo CAP.
 - **Integración real** (guardada por `AEMET_API_KEY`): predicción de Madrid y
   avisos de Andalucía contra la API en vivo.

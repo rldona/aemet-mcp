@@ -20,7 +20,7 @@ y `zod`. Todo lo demás se resuelve con APIs nativas de Node:
 - Extracción de tar → parser propio (`tar.ts`, ~50 líneas).
 - Parseo de CAP XML → extracción con regex acotadas (los CAP de AEMET son planos y
   regulares).
-- Decodificación latin1 → `TextDecoder`.
+- Decodificación (UTF-8 / latin1) → `TextDecoder` nativo.
 
 ## Consecuencias
 

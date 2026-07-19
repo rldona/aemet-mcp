@@ -1,7 +1,13 @@
 # 0004 — Cliente de dos pasos + decodificación latin1
 
-- **Estado**: Aceptada
+- **Estado**: Reemplazada por [ADR-0012](./0012-codificacion-autodetectada-mojibake.md)
 - **Fecha**: 2026-07-19
+
+> ⚠️ **Superada.** La premisa "los datos vienen siempre en latin1" resultó falsa en
+> producción: AEMET mezcla latin1 y UTF-8 según el recurso/nodo CDN. La parte del
+> **patrón de dos pasos** sigue vigente; la de **decodificación** la sustituye el
+> [ADR-0012](./0012-codificacion-autodetectada-mojibake.md) (auto-detección +
+> reparación de mojibake).
 
 ## Contexto
 
