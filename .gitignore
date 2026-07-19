@@ -9,3 +9,6 @@ coverage/
 
 # artefactos de npm pack
 *.tgz
+
+# config local de Claude Code
+.claude/

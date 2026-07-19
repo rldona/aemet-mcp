@@ -146,6 +146,15 @@ Se aceptan alias comunes (p. ej. "euskadi", "madrid", "valencia").
 - **Caché** en memoria con TTL: ~10 min predicción/avisos, ~5 min observación,
   24 h inventario de estaciones.
 
+## Documentación
+
+- [Documentación funcional](./docs/functional-spec.md) — capacidades y casos de uso.
+- [Arquitectura técnica](./docs/architecture.md) — módulos, flujos y diagramas.
+- [Referencia de herramientas](./docs/tools-reference.md) — entradas, salidas, errores.
+- [Notas de la API de AEMET](./docs/aemet-api-notes.md) — particularidades del upstream.
+- [Decisiones de arquitectura (ADR)](./docs/adr/README.md).
+- [CHANGELOG](./CHANGELOG.md) · [Contribuir](./CONTRIBUTING.md) · [Seguridad](./SECURITY.md)
+
 ## Desarrollo
 
 ```bash
