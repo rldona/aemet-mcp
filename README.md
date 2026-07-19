@@ -195,6 +195,9 @@ const { avisos } = await obtenerAvisos(client, andalucia.codigo);
 El `AemetClient` acepta opciones (`maxRetries`, `backoffBaseMs`, `fetchImpl`,
 `sleep`) además de `apiKey`. Los tipos van incluidos (`dist/lib.d.ts`).
 
+📖 **Referencia completa** (todas las funciones, tipos, rutas de endpoint y recetas
+para una web del tiempo): [docs/library.md](./docs/library.md).
+
 ## Cómo funciona (interno)
 
 - **Patrón de dos pasos de AEMET:** la primera respuesta trae `{ estado, datos: url }`;
