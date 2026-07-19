@@ -9,6 +9,8 @@ import type {
   RangoHorario,
 } from "./types.js";
 import type { Aviso, NivelAviso, ResultadoAvisos } from "./avisos.js";
+import { etiquetaMunicipio } from "./municipios.js";
+import type { EstacionResuelta } from "./estaciones.js";
 
 /**
  * Elige el elemento con `periodo === target` o, en su defecto, el primero.
@@ -20,7 +22,7 @@ import type { Aviso, NivelAviso, ResultadoAvisos } from "./avisos.js";
  * ÚNICO elemento sin campo `periodo`, que ya representa el día entero: ahí el
  * primero es el correcto porque es el único.
  */
-function pickPeriodo<T extends { periodo?: string }>(
+export function pickPeriodo<T extends { periodo?: string }>(
   arr: T[] | undefined,
   target = "00-24",
 ): T | undefined {
@@ -78,7 +80,7 @@ export function formatMunicipios(query: string, resultados: Municipio[]): string
   if (resultados.length === 0) {
     return `No se encontró ningún municipio que coincida con "${query}".`;
   }
-  const lineas = resultados.map((m) => `• ${m.nombre} — código INE ${m.codigo}`);
+  const lineas = resultados.map((m) => `• ${etiquetaMunicipio(m)}`);
   const cabecera =
     resultados.length === 1
       ? `1 municipio coincide con "${query}":`
@@ -256,6 +258,13 @@ export function formatAvisos(ccaa: string, resultado: ResultadoAvisos): string {
     .join(", ");
   out.push(`${avisos.length} avisos (${desglose}). Nivel máximo: ${nivelMax.toUpperCase()}.`);
 
+  out.push(...cuerpoAvisos(avisos));
+  return out.join("\n");
+}
+
+/** Lista de avisos agrupada por nivel, acotada a MAX_AVISOS_LISTADOS. */
+function cuerpoAvisos(avisos: Aviso[]): string[] {
+  const out: string[] = [];
   let listados = 0;
   for (const nivel of NIVELES_ORDEN) {
     const delNivel = avisos.filter((a) => a.nivel === nivel);
@@ -272,6 +281,130 @@ export function formatAvisos(ccaa: string, resultado: ResultadoAvisos): string {
     out.push("");
     out.push(`… y ${avisos.length - listados} avisos más (mismos niveles).`);
   }
+  return out;
+}
+
+// ---------------------------------------------------------------------------
+// buscar_estacion
+// ---------------------------------------------------------------------------
+
+export function formatEstaciones(
+  consulta: string,
+  estaciones: EstacionResuelta[],
+): string {
+  if (estaciones.length === 0) {
+    return `No se encontró ninguna estación que coincida con "${consulta}".`;
+  }
+  const lineas = estaciones.map((e) => {
+    const partes = [`• ${e.nombre} — idema ${e.idema}`];
+    if (e.provincia) partes.push(e.provincia);
+    if (e.latitud !== undefined && e.longitud !== undefined) {
+      partes.push(`${e.latitud.toFixed(4)}, ${e.longitud.toFixed(4)}`);
+    }
+    if (e.altitud !== undefined) partes.push(`${e.altitud} m`);
+    return partes.join("  ·  ");
+  });
+  const cabecera =
+    estaciones.length === 1
+      ? `1 estación coincide con "${consulta}":`
+      : `${estaciones.length} estaciones coinciden con "${consulta}":`;
+  return [cabecera, ...lineas].join("\n");
+}
+
+// ---------------------------------------------------------------------------
+// observacion_municipio
+// ---------------------------------------------------------------------------
+
+export function formatObservacionMunicipio(
+  m: Municipio,
+  elegida: (EstacionResuelta & { distanciaKm: number }) | undefined,
+  observacion: Observacion | undefined,
+  candidatas: Array<EstacionResuelta & { distanciaKm: number }>,
+): string {
+  if (!elegida || !observacion) {
+    const lista = candidatas
+      .map((c) => `  - ${c.nombre} (idema ${c.idema}, a ${c.distanciaKm.toFixed(1)} km)`)
+      .join("\n");
+    return (
+      `Ninguna de las ${candidatas.length} estaciones más cercanas a ` +
+      `${m.nombreNatural} (${m.provincia}) publica observación ahora mismo.\n${lista}`
+    );
+  }
+
+  const out: string[] = [];
+  out.push(`Tiempo actual cerca de ${m.nombreNatural} (${m.provincia})`);
+  out.push(
+    `Estación: ${elegida.nombre} (idema ${elegida.idema}), a ` +
+      `${elegida.distanciaKm.toFixed(1)} km del municipio`,
+  );
+  out.push(`Hora del dato (UTC): ${observacion.fint ?? "—"}`);
+  out.push("");
+  out.push(`Temperatura:  ${fmtNum(observacion.ta, "°C")}`);
+  out.push(`Humedad:      ${fmtNum(observacion.hr, "%")}`);
+  out.push(`Precip. (última hora): ${fmtNum(observacion.prec, "mm")}`);
+  out.push(
+    `Viento:       ${fmtNum(observacion.vv, "m/s")}` +
+      (observacion.dv !== undefined ? ` del ${observacion.dv}°` : ""),
+  );
+  out.push(`Presión:      ${fmtNum(observacion.pres, "hPa")}`);
+
+  const otras = candidatas.filter((c) => c.idema !== elegida.idema);
+  if (otras.length > 0) {
+    out.push("");
+    out.push(
+      `Otras estaciones cercanas: ` +
+        otras.map((c) => `${c.nombre} (${c.idema}, ${c.distanciaKm.toFixed(1)} km)`).join("; "),
+    );
+  }
+  return out.join("\n");
+}
+
+// ---------------------------------------------------------------------------
+// avisos_municipio
+// ---------------------------------------------------------------------------
+
+export function formatAvisosMunicipio(
+  m: Municipio,
+  ccaa: { codigo: string; nombre: string },
+  resultado: ResultadoAvisos,
+  avisos: Aviso[],
+  alcance: "municipio" | "comunidad",
+): string {
+  const out: string[] = [];
+  const donde = `${m.nombreNatural} (${m.provincia}), ${ccaa.nombre}`;
+
+  if (avisos.length === 0) {
+    const detalle =
+      resultado.avisos.length > 0
+        ? ` Hay ${resultado.avisos.length} avisos en ${ccaa.nombre}, pero ninguno cubre el municipio.`
+        : "";
+    return `Sin avisos meteorológicos vigentes en ${donde}.${detalle}`;
+  }
+
+  out.push(`Avisos meteorológicos vigentes — ${donde}`);
+  if (resultado.elaborado) {
+    out.push(`Elaborado: ${resultado.elaborado.replace("T", " ").slice(0, 19)}`);
+  }
+
+  const porNivel: Record<NivelAviso, number> = { rojo: 0, naranja: 0, amarillo: 0 };
+  for (const a of avisos) porNivel[a.nivel]++;
+  const nivelMax = NIVELES_ORDEN.find((n) => porNivel[n] > 0) ?? "amarillo";
+  const desglose = NIVELES_ORDEN.filter((n) => porNivel[n] > 0)
+    .map((n) => `${porNivel[n]} ${n}`)
+    .join(", ");
+  out.push(`${avisos.length} avisos (${desglose}). Nivel máximo: ${nivelMax.toUpperCase()}.`);
+
+  // Decir siempre qué se está mirando: no es lo mismo "estos avisos cubren tu
+  // municipio" que "estos son los de toda la comunidad, no he podido acotar".
+  out.push(
+    alcance === "municipio"
+      ? `Alcance: acotado al municipio por la geometría de las zonas de aviso ` +
+          `(${resultado.avisos.length} vigentes en toda ${ccaa.nombre}).`
+      : `Alcance: TODA ${ccaa.nombre}; no se pudo acotar al municipio, así que ` +
+          `puede haber avisos que no le afecten.`,
+  );
+
+  out.push(...cuerpoAvisos(avisos));
   return out.join("\n");
 }
 

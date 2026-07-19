@@ -42,8 +42,11 @@ const PROHIBIDAS = [/(^|\/)\.env/, /(^|\/)\.npmrc$/, /^package\/src\//, /^packag
 
 const HERRAMIENTAS = [
   "avisos",
+  "avisos_municipio",
+  "buscar_estacion",
   "buscar_municipio",
   "observacion_estacion",
+  "observacion_municipio",
   "prediccion_diaria",
   "prediccion_horaria",
 ];

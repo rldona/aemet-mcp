@@ -23,8 +23,11 @@ const PKG = JSON.parse(
 
 const HERRAMIENTAS = [
   "avisos",
+  "avisos_municipio",
+  "buscar_estacion",
   "buscar_municipio",
   "observacion_estacion",
+  "observacion_municipio",
   "prediccion_diaria",
   "prediccion_horaria",
 ];
@@ -68,12 +71,33 @@ describe("servidor MCP (stdio)", () => {
     expect(tools.map((t) => t.name).sort()).toEqual(HERRAMIENTAS);
   });
 
-  it("cada herramienta declara descripción y schema de entrada", async () => {
+  it("cada herramienta declara descripción y schemas de entrada y salida", async () => {
     const { tools } = await client.listTools();
     for (const t of tools) {
       expect(t.description, `${t.name} sin descripción`).toBeTruthy();
       expect(t.inputSchema, `${t.name} sin inputSchema`).toBeTruthy();
+      expect(t.outputSchema, `${t.name} sin outputSchema`).toBeTruthy();
     }
+  });
+
+  it("una tool sin dependencia de AEMET devuelve structuredContent válido", async () => {
+    const res = await client.callTool({
+      name: "buscar_municipio",
+      arguments: { nombre: "El Campello" },
+    });
+    // Si el structuredContent no casara con el outputSchema, el propio SDK
+    // habría rechazado la respuesta antes de llegar aquí.
+    const datos = res.structuredContent as {
+      consulta: string;
+      total: number;
+      municipios: Array<{ codigo: string; nombre: string; provincia: string }>;
+    };
+    expect(datos.consulta).toBe("El Campello");
+    expect(datos.municipios[0]).toMatchObject({
+      codigo: "03050",
+      nombre: "el Campello",
+      provincia: "Alicante",
+    });
   });
 
   it("una tool que necesita AEMET falla con MISSING_API_KEY, no revienta", async () => {
