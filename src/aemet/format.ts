@@ -7,6 +7,7 @@ import type {
   PrediccionDiariaMunicipio,
   PrediccionHorariaMunicipio,
 } from "./types.js";
+import type { Aviso, NivelAviso, ResultadoAvisos } from "./avisos.js";
 
 /** Elige el elemento con `periodo === target` o, en su defecto, el primero. */
 function pickPeriodo<T extends { periodo?: string }>(
@@ -141,6 +142,72 @@ export function formatObservacion(
   out.push(`Viento:       ${fmtNum(o.vv, "m/s")}${o.dv !== undefined ? ` del ${o.dv}°` : ""}`);
   out.push(`Presión:      ${fmtNum(o.pres, "hPa")}`);
   return out.join("\n");
+}
+
+// ---------------------------------------------------------------------------
+// avisos
+// ---------------------------------------------------------------------------
+
+const NIVEL_EMOJI: Record<NivelAviso, string> = {
+  rojo: "🔴",
+  naranja: "🟠",
+  amarillo: "🟡",
+};
+const NIVELES_ORDEN: NivelAviso[] = ["rojo", "naranja", "amarillo"];
+
+/** "2026-07-19T13:00:00+02:00" -> "19/07 13:00" (hora local de AEMET). */
+function fechaHoraCorta(iso?: string): string {
+  if (!iso) return "—";
+  const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/);
+  if (!m) return iso;
+  return `${m[3]}/${m[2]} ${m[4]}:${m[5]}`;
+}
+
+const MAX_AVISOS_LISTADOS = 60;
+
+export function formatAvisos(ccaa: string, resultado: ResultadoAvisos): string {
+  const { avisos, elaborado } = resultado;
+  if (avisos.length === 0) {
+    return `Sin avisos meteorológicos activos en ${ccaa} ahora mismo.`;
+  }
+
+  const porNivel: Record<NivelAviso, number> = { rojo: 0, naranja: 0, amarillo: 0 };
+  for (const a of avisos) porNivel[a.nivel]++;
+  const nivelMax = NIVELES_ORDEN.find((n) => porNivel[n] > 0) ?? "amarillo";
+
+  const out: string[] = [];
+  out.push(`Avisos meteorológicos vigentes — ${ccaa}`);
+  if (elaborado) out.push(`Elaborado: ${elaborado.replace("T", " ").slice(0, 19)}`);
+  const desglose = NIVELES_ORDEN.filter((n) => porNivel[n] > 0)
+    .map((n) => `${porNivel[n]} ${n}`)
+    .join(", ");
+  out.push(`${avisos.length} avisos (${desglose}). Nivel máximo: ${nivelMax.toUpperCase()}.`);
+
+  let listados = 0;
+  for (const nivel of NIVELES_ORDEN) {
+    const delNivel = avisos.filter((a) => a.nivel === nivel);
+    if (delNivel.length === 0) continue;
+    out.push("");
+    out.push(`${NIVEL_EMOJI[nivel]} ${nivel.toUpperCase()} (${delNivel.length})`);
+    for (const a of delNivel) {
+      if (listados >= MAX_AVISOS_LISTADOS) break;
+      out.push(`  • ${lineaAviso(a)}`);
+      listados++;
+    }
+  }
+  if (listados < avisos.length) {
+    out.push("");
+    out.push(`… y ${avisos.length - listados} avisos más (mismos niveles).`);
+  }
+  return out.join("\n");
+}
+
+function lineaAviso(a: Aviso): string {
+  const periodo = `${fechaHoraCorta(a.onset)} → ${fechaHoraCorta(a.expires)}`;
+  const partes = [`${a.zona}: ${a.fenomeno}`, periodo];
+  if (a.descripcion) partes.push(a.descripcion);
+  if (a.probabilidad) partes.push(`prob. ${a.probabilidad}`);
+  return partes.join("  ·  ");
 }
 
 // ---------------------------------------------------------------------------
