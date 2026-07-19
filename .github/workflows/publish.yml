@@ -53,14 +53,7 @@ jobs:
           npm test
           npm run build
 
-      - name: Diagnóstico OIDC
-        run: |
-          echo "node: $(node -v)"
-          echo "npm:  $(npm -v)  (OIDC requiere >= 11.5.1)"
-          echo "which npm: $(which npm)"
-          echo "OIDC request URL presente: ${ACTIONS_ID_TOKEN_REQUEST_URL:+sí}"
-
-      # Sin NODE_AUTH_TOKEN: npm detecta el entorno OIDC de Actions y se autentica
-      # contra el Trusted Publisher. La provenance se genera automáticamente.
-      - name: Publish (OIDC)
-        run: npm publish
+      # Sin NODE_AUTH_TOKEN: npm se autentica por OIDC contra el Trusted Publisher.
+      # `--provenance` es necesario para adjuntar la atestación (no es automática).
+      - name: Publish (OIDC + provenance)
+        run: npm publish --provenance
