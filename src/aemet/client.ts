@@ -111,22 +111,56 @@ export class AemetClient {
     ) as Promise<T>;
   }
 
+  /**
+   * fetch con reintentos ante fallos de red TRANSITORIOS (el servidor de datos
+   * de AEMET corta conexiones de vez en cuando). No reintenta errores HTTP: de
+   * esos se encarga la lógica de `estado`.
+   */
+  private async doFetch(
+    url: string,
+    init: RequestInit,
+    contexto: string,
+    retryHttp5xx = false,
+  ): Promise<Response> {
+    let lastError: unknown;
+    for (let attempt = 0; attempt <= this.maxRetries; attempt++) {
+      try {
+        const res = await this.fetchImpl(url, init);
+        // 5xx en el servidor de datos suele ser transitorio: reintentamos.
+        if (retryHttp5xx && res.status >= 500 && attempt < this.maxRetries) {
+          await this.sleep(this.backoffBaseMs * 2 ** attempt);
+          continue;
+        }
+        return res;
+      } catch (cause) {
+        lastError = cause;
+        if (attempt < this.maxRetries) {
+          await this.sleep(this.backoffBaseMs * 2 ** attempt);
+          continue;
+        }
+        throw new AemetError(
+          "NETWORK",
+          `Fallo de red ${contexto} tras ${this.maxRetries + 1} intentos: ${(cause as Error).message}`,
+        );
+      }
+    }
+    // Solo se llega aquí si agotamos reintentos por 5xx.
+    throw new AemetError(
+      "UPSTREAM",
+      `AEMET devolvió errores 5xx ${contexto} tras ${this.maxRetries + 1} intentos.`,
+    );
+  }
+
   /** Primer salto: obtiene y valida el sobre. Reintenta ante 429. */
   private async fetchEnvelope(path: string): Promise<AemetEnvelope> {
     const url = `${BASE_URL}${path}`;
 
     for (let attempt = 0; ; attempt++) {
-      let res: Response;
-      try {
-        res = await this.fetchImpl(url, {
-          headers: { api_key: this.apiKey, Accept: "application/json" },
-        });
-      } catch (cause) {
-        throw new AemetError(
-          "NETWORK",
-          `Fallo de red llamando a AEMET (${path}): ${(cause as Error).message}`,
-        );
-      }
+      const res = await this.doFetch(
+        url,
+        { headers: { api_key: this.apiKey, Accept: "application/json" } },
+        `llamando a AEMET (${path})`,
+      );
 
       // AEMET responde el sobre con HTTP 200; pero 401/429 pueden llegar a
       // nivel HTTP. Intentamos leer el sobre y, si no hay, usamos el status HTTP.
@@ -149,7 +183,11 @@ export class AemetClient {
 
   private async tryParseEnvelope(res: Response): Promise<AemetEnvelope | null> {
     try {
-      const data = (await res.json()) as Partial<AemetEnvelope>;
+      // El sobre JSON también viene en latin1: la `descripcion` lleva acentos
+      // (p. ej. "límites"). Decodificar como UTF-8 los rompería.
+      const bytes = new Uint8Array(await res.arrayBuffer());
+      const text = new TextDecoder("latin1").decode(bytes);
+      const data = JSON.parse(text) as Partial<AemetEnvelope>;
       if (typeof data?.estado === "number") return data as AemetEnvelope;
       return null;
     } catch {
@@ -173,17 +211,12 @@ export class AemetClient {
 
   /** Segundo salto: descarga el fichero de `datos` como bytes. */
   private async fetchBytes(datosUrl: string): Promise<Uint8Array> {
-    let res: Response;
-    try {
-      res = await this.fetchImpl(datosUrl, {
-        headers: { api_key: this.apiKey },
-      });
-    } catch (cause) {
-      throw new AemetError(
-        "NETWORK",
-        `Fallo de red descargando datos de AEMET: ${(cause as Error).message}`,
-      );
-    }
+    const res = await this.doFetch(
+      datosUrl,
+      { headers: { api_key: this.apiKey } },
+      "descargando el fichero de datos de AEMET",
+      true, // reintentar 5xx transitorios del servidor de datos
+    );
     if (!res.ok) {
       throw new AemetError(
         "UPSTREAM",

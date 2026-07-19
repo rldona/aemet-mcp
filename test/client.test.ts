@@ -2,13 +2,24 @@ import { describe, it, expect, vi } from "vitest";
 import { AemetClient } from "../src/aemet/client.js";
 import { AemetError } from "../src/aemet/errors.js";
 
-/** Respuesta tipo `Response` mínima para el sobre JSON del primer salto. */
+/**
+ * Respuesta tipo `Response` para el sobre del primer salto. El sobre viene en
+ * latin1 (igual que los datos), así que lo codificamos como tal.
+ */
 function envelopeResponse(body: unknown, status = 200): Response {
+  const bytes = latin1Bytes(JSON.stringify(body));
   return {
     status,
     ok: status >= 200 && status < 300,
-    json: async () => body,
+    arrayBuffer: async () => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength),
   } as unknown as Response;
+}
+
+/** Codifica un string ASCII/latin1 a bytes (1 byte por code point < 256). */
+function latin1Bytes(s: string): Uint8Array {
+  const out = new Uint8Array(s.length);
+  for (let i = 0; i < s.length; i++) out[i] = s.charCodeAt(i) & 0xff;
+  return out;
 }
 
 /** Respuesta binaria para el segundo salto (fichero de `datos`). */
@@ -106,6 +117,20 @@ describe("AemetClient mapeo de estado", () => {
   it("lanza MISSING_API_KEY si no hay key", () => {
     expect(() => new AemetClient({ apiKey: "" })).toThrow(AemetError);
   });
+
+  it("decodifica la descripción del sobre en latin1 (acentos en errores)", async () => {
+    // "límites" en latin1 dentro del sobre de error.
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(
+        envelopeResponse({ estado: 404, descripcion: "sin datos: límites" }, 404),
+      );
+    const client = new AemetClient({ apiKey: "K", fetchImpl });
+    await expect(client.fetchJson("/x")).rejects.toMatchObject({
+      code: "NOT_FOUND",
+      message: expect.stringContaining("límites"),
+    });
+  });
 });
 
 describe("AemetClient reintentos ante 429", () => {
@@ -132,6 +157,38 @@ describe("AemetClient reintentos ante 429", () => {
     const result = await client.fetchJson<typeof payload>("/x");
     expect(result).toEqual(payload);
     expect(sleep).toHaveBeenCalledTimes(2); // dos reintentos antes del éxito
+  });
+
+  it("reintenta fallos de red transitorios en el segundo salto", async () => {
+    const payload = [{ ok: true }];
+    const fetchImpl = vi
+      .fn()
+      // primer salto: sobre OK
+      .mockResolvedValueOnce(
+        envelopeResponse({ estado: 200, descripcion: "ok", datos: DATOS_URL }),
+      )
+      // segundo salto: primer intento falla (red), segundo va bien
+      .mockRejectedValueOnce(new TypeError("fetch failed"))
+      .mockResolvedValueOnce(
+        bytesResponse(new TextEncoder().encode(JSON.stringify(payload))),
+      );
+    const sleep = vi.fn(async () => {});
+    const client = new AemetClient({ apiKey: "K", fetchImpl, maxRetries: 3, sleep });
+    const result = await client.fetchJson<typeof payload>("/x");
+    expect(result).toEqual(payload);
+    expect(fetchImpl).toHaveBeenCalledTimes(3); // sobre + 2 intentos de datos
+  });
+
+  it("agota reintentos de red y lanza NETWORK", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(
+        envelopeResponse({ estado: 200, descripcion: "ok", datos: DATOS_URL }),
+      )
+      .mockRejectedValue(new TypeError("fetch failed"));
+    const sleep = vi.fn(async () => {});
+    const client = new AemetClient({ apiKey: "K", fetchImpl, maxRetries: 2, sleep });
+    await expect(client.fetchJson("/x")).rejects.toMatchObject({ code: "NETWORK" });
   });
 
   it("agota reintentos y lanza RATE_LIMITED", async () => {
