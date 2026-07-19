@@ -13,6 +13,8 @@
 
 ## Para desarrolladores
 
+- [Uso como librería](./library.md) — referencia de la API (`AemetClient`,
+  resolvers, avisos, formateadores, tipos) para consumir AEMET desde tu backend.
 - [Arquitectura técnica](./architecture.md) — estructura, flujos y diagramas.
 - [Notas de la API de AEMET](./aemet-api-notes.md) — particularidades del upstream.
 - [Decisiones de arquitectura (ADR)](./adr/README.md) — el porqué de cada decisión.
