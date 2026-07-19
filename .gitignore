@@ -6,3 +6,6 @@ dist/
 .DS_Store
 coverage/
 *.tsbuildinfo
+
+# artefactos de npm pack
+*.tgz
