@@ -1,9 +1,12 @@
 {
-  "name": "aemet-mcp",
+  "name": "@rldona/aemet-mcp",
   "version": "0.1.0",
   "description": "Servidor MCP para el tiempo oficial de España (API pública OpenData de AEMET). Predicción, observación y avisos como herramientas MCP tipadas.",
   "type": "module",
   "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
   "keywords": [
     "mcp",
     "model-context-protocol",
@@ -15,14 +18,14 @@
     "claude",
     "cursor"
   ],
-  "author": "",
+  "author": "Raúl López Doña",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/USER/aemet-mcp.git"
+    "url": "git+https://github.com/rldona/aemet-mcp.git"
   },
-  "homepage": "https://github.com/USER/aemet-mcp#readme",
+  "homepage": "https://github.com/rldona/aemet-mcp#readme",
   "bugs": {
-    "url": "https://github.com/USER/aemet-mcp/issues"
+    "url": "https://github.com/rldona/aemet-mcp/issues"
   },
   "bin": {
     "aemet-mcp": "dist/index.js"

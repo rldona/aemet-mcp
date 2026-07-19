@@ -142,8 +142,10 @@ arranca el servidor.
 - No meter dependencias pesadas (ni framework, ni ORM, ni axios).
 - No hardcodear la API key ni subirla al repo.
 
-## Decisión abierta
+## Decisión (cerrada)
 
-`avisos` puede quedar para la Fase 3 (MVP más rápido) o entrar en el MVP asumiendo
-el coste del tar.gz + CAP XML. **Decisión actual:** MVP sin `avisos`; se implementa
-en Fase 3. La descripción pública no promete avisos hasta que estén.
+`avisos` **entra en el producto**: implementado en la Fase 3 (tar.gz + CAP XML sin
+dependencias). Las 5 herramientas están operativas y verificadas contra la API real.
+
+Publicación: nombre npm **`@rldona/aemet-mcp`** (el nombre `aemet-mcp` sin scope ya
+estaba ocupado por otro autor). `npx -y @rldona/aemet-mcp` arranca el servidor.
