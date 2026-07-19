@@ -76,3 +76,39 @@ export function provinciaPorCodigo(codigo: string): string | undefined {
 export function codigoProvincia(codigoMunicipio: string): string {
   return codigoMunicipio.trim().slice(0, 2);
 }
+
+/**
+ * Compara dos nombres de provincia tolerando las variantes de AEMET.
+ *
+ * AEMET no usa el nomenclátor del INE y ni siquiera es consistente consigo
+ * misma: su inventario de estaciones trae a la vez "SANTA CRUZ DE TENERIFE" y
+ * "STA. CRUZ DE TENERIFE", y "BALEARES" junto a "ILLES BALEARS". Comparando las
+ * cadenas tal cual, una estación DENTRO del municipio se declaraba "en otra
+ * provincia" y disparaba la advertencia de observacion_municipio, que existe
+ * justo para los casos en que el dato NO representa al municipio. Un aviso que
+ * salta cuando no toca enseña a ignorarlo.
+ *
+ * De las 54 grafías del inventario, solo tres no casaban por acentos y
+ * mayúsculas: las tres están en `SINONIMOS`.
+ */
+const SINONIMOS: Readonly<Record<string, string>> = {
+  "STA CRUZ DE TENERIFE": "SANTA CRUZ DE TENERIFE",
+  BALEARES: "ILLES BALEARS",
+  "ISLAS BALEARES": "ILLES BALEARS",
+  "ARABA ALAVA": "ALAVA",
+  ARABA: "ALAVA",
+};
+
+function normalizarProvincia(nombre: string): string {
+  const base = nombre
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, " ")
+    .trim();
+  return SINONIMOS[base] ?? base;
+}
+
+export function mismaProvincia(a: string, b: string): boolean {
+  return normalizarProvincia(a) === normalizarProvincia(b);
+}

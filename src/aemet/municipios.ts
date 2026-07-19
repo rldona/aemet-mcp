@@ -251,9 +251,13 @@ export function resolverMunicipio(entrada: string): Municipio {
 }
 
 /** Etiqueta de un municipio para listados y mensajes: nombre, provincia y código. */
-export function etiquetaMunicipio(m: Municipio): string {
+export function etiquetaLugar(m: Municipio): string {
   const donde = m.isla ? `${m.provincia}, ${m.isla}` : m.provincia;
-  return `${m.nombreNatural} (${donde}) — código INE ${m.codigo}`;
+  return `${m.nombreNatural} (${donde})`;
+}
+
+export function etiquetaMunicipio(m: Municipio): string {
+  return `${etiquetaLugar(m)} — código INE ${m.codigo}`;
 }
 
 /**
