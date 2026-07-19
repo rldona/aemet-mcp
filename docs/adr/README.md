@@ -11,7 +11,7 @@ formato de [Michael Nygard](https://cognitect.com/blog/2011/11/15/documenting-ar
 | [0001](./0001-mcp-stdio-sdk.md) | Protocolo MCP por stdio con el SDK oficial | Aceptada |
 | [0002](./0002-sin-dependencias-pesadas.md) | Sin dependencias pesadas | Aceptada |
 | [0003](./0003-dataset-municipios-ine.md) | Bundlear el dataset de municipios del INE | Aceptada |
-| [0004](./0004-cliente-dos-pasos-latin1.md) | Cliente de dos pasos + decodificación latin1 | Aceptada |
+| [0004](./0004-cliente-dos-pasos-latin1.md) | Cliente de dos pasos + decodificación latin1 | Reemplazada por [0012](./0012-codificacion-autodetectada-mojibake.md) |
 | [0005](./0005-cache-en-memoria-ttl.md) | Caché en memoria con TTL | Aceptada |
 | [0006](./0006-reintentos-backoff.md) | Reintentos con backoff (429, red, 5xx) | Aceptada |
 | [0007](./0007-avisos-tar-cap-sin-deps.md) | Avisos: parseo de tar.gz + CAP sin dependencias | Aceptada |
@@ -19,6 +19,7 @@ formato de [Michael Nygard](https://cognitect.com/blog/2011/11/15/documenting-ar
 | [0009](./0009-nombre-paquete-scoped.md) | Nombre de paquete con scope `@rldona` | Aceptada |
 | [0010](./0010-propagacion-honesta-errores.md) | Propagación honesta de errores (sin mocks) | Aceptada |
 | [0011](./0011-trusted-publishing-oidc.md) | Publicación con Trusted Publishing (OIDC) | Aceptada |
+| [0012](./0012-codificacion-autodetectada-mojibake.md) | Codificación auto-detectada + reparación de mojibake | Aceptada |
 
 ## Plantilla
 

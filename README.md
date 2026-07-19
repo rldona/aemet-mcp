@@ -22,9 +22,10 @@ formateados en texto legible.
 ## Por qué
 
 AEMET trabaja con **códigos INE de 5 dígitos**, sirve los datos en **dos pasos**,
-en **ISO-8859-1** y los avisos como un **tar.gz de XML (CAP)**. Este servidor
-esconde toda esa fontanería: le pides el tiempo de "Málaga" y te devuelve texto
-legible, sin códigos ni JSON crudo.
+con **codificaciones inconsistentes** (UTF-8/latin1 según el recurso, a veces con
+mojibake) y los avisos como un **tar.gz de XML (CAP)**. Este servidor esconde toda
+esa fontanería: le pides el tiempo de "Málaga" y te devuelve texto legible, sin
+códigos ni JSON crudo.
 
 ## Requisitos
 
@@ -138,8 +139,10 @@ Se aceptan alias comunes (p. ej. "euskadi", "madrid", "valencia").
 
 - **Patrón de dos pasos de AEMET:** la primera respuesta trae `{ estado, datos: url }`;
   el contenido real se descarga en un segundo GET. Encapsulado en `AemetClient`.
-- **Encoding:** los ficheros de datos y los sobres vienen en **latin1**; se
-  decodifican con `TextDecoder('latin1')` para no romper los acentos.
+- **Encoding:** AEMET mezcla **UTF-8 y latin1** según el recurso/nodo CDN (y a veces
+  declara mal el `charset`, produciendo mojibake). Se **auto-detecta** la
+  codificación y se **repara el mojibake**; los sobres de error van en latin1.
+  Ver [ADR-0012](./docs/adr/0012-codificacion-autodetectada-mojibake.md).
 - **Estados** `200/401/404/429` mapeados a errores claros; reintentos con backoff
   ante `429` y fallos de red/5xx transitorios.
 - **Avisos:** `tar.gz` de CAP XML descomprimido y parseado sin dependencias.

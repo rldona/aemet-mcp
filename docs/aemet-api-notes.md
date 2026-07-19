@@ -41,12 +41,28 @@ El contenido real está en un **segundo GET** a la URL de `datos`. La de
 El `estado` puede venir en el cuerpo del sobre (HTTP 200) o a nivel HTTP; el
 cliente contempla ambos.
 
-## Encoding: ISO-8859-1 (latin1)
+## Encoding: inconsistente (auto-detección + reparación de mojibake)
 
-Tanto los ficheros de `datos` como las **descripciones de los sobres** vienen en
-**latin1**, no UTF-8. Hay que decodificar con `new TextDecoder('latin1')`; con
-UTF-8 los acentos salen rotos (p. ej. `l�mites`). Excepción: los ficheros CAP de
-avisos son UTF-8 (ver abajo).
+AEMET **mezcla codificaciones** según el recurso y el nodo CDN que responda: hay
+recursos en **latin1** (ISO-8859-1) y otros en **UTF-8** (p. ej. la predicción
+municipal). Peor aún, a veces **declara `charset=ISO-8859-15` sirviendo bytes
+UTF-8**, y algún `fetch` intermedio (el fetch parcheado de Next.js, proxies) se cree
+la cabecera y transcodifica, produciendo **mojibake doble** (`AndÃºjar` → debería
+ser `Andújar`). Fiarse del `charset` de la cabecera **no** funciona.
+
+Por eso el cliente **no asume una sola codificación**, sino que:
+
+1. **Auto-detecta** el fichero de `datos`: `TextDecoder('utf-8', { fatal: true })`
+   y, si los bytes no son UTF-8 válido, cae a `latin1`.
+2. Aplica **`reparaMojibake`** (deshace la doble codificación `Ã…`; idempotente).
+3. Tras `JSON.parse`, aplica **`reparaProfundo`** a cada string (el nodo CDN puede
+   variar entre llamadas).
+4. Las **descripciones de los sobres** de error se decodifican en **latin1** (son
+   estables). Los ficheros CAP de avisos son UTF-8 (ver abajo).
+
+`reparaMojibake` y `reparaProfundo` se exportan en la API de librería del paquete
+(`@rldona/aemet-mcp`) para backends que consuman AEMET directamente. Detalle en
+[ADR-0012](./adr/0012-codificacion-autodetectada-mojibake.md).
 
 ## Endpoints usados
 
