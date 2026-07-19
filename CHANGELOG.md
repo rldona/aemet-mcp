@@ -9,6 +9,55 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 _Nada por ahora._
 
+## [0.3.0] - 2026-09-07
+
+Resolución formal de la compatibilidad ESM/CommonJS (ticket 9 de
+`docs/backlog-mejoras.md`).
+
+### Cambiado — INCOMPATIBLE
+
+- **Node ≥ 20.19** (antes ≥ 18). El paquete se declara formalmente **ESM-only**:
+  se publica un único build ES module y no hay build CommonJS.
+
+  20.19 no es un número arbitrario: es la primera versión con `require(esm)`, que
+  es justo lo que permite consumir un paquete ESM-only desde CommonJS. Con ese
+  suelo, `import` y `require()` funcionan los dos; por debajo, `require()` falla
+  con `ERR_REQUIRE_ESM` (comprobado: en Node 18.20.8 el `import()` dinámico
+  funciona y el `require()` no).
+
+  Quien siga en Node 18 puede quedarse en la 0.2.x o usar `import()` dinámico.
+
+- La condición `exports` pasa a ser explícita (`types` / `import` / `require`, las
+  tres al mismo fichero ESM), sustituyendo a la condición `default` que se añadió
+  en la 0.2.1. Aquella no arreglaba nada **en el suelo que el paquete declaraba
+  entonces**: con `engines: >=18`, `require()` fallaba igual. Ahora la resolución
+  es explícita y el suelo la respalda.
+
+- Target del build: `node18` → `node20`.
+- Matriz de CI: Node 18/20/22 → 20.19/22/24.
+
+### Añadido
+
+- **`npm run test:pack`**: valida el artefacto publicable, no el árbol de trabajo.
+  Empaqueta con `npm pack`, instala el tarball en un proyecto limpio fuera del
+  repo y comprueba resolución `import`/`require`, que las exportaciones públicas
+  siguen ahí, que los tipos resuelven bajo `moduleResolution: NodeNext`, el bit de
+  ejecución y el shebang del binario, el handshake MCP contra el paquete instalado
+  y que no se cuele en el tarball nada que no toque (`.env`, `.npmrc`, `src/`,
+  `test/`).
+
+  Cubre justo el hueco entre los tests y la publicación: nada de lo que valida se
+  puede romper de una forma que un test unitario detecte.
+
+- CI ejecuta esa validación en un job `package` sobre toda la matriz (20.19/22/24),
+  porque la resolución de módulos cambia entre versiones de Node. El workflow de
+  publicación la ejecuta como último paso antes de `npm publish`.
+
+### Corregido
+
+- El workflow de publicación ejecutaba `npm test` **antes** de `npm run build`, lo
+  que con el smoke test MCP añadido en la 0.2.2 habría roto toda publicación.
+
 ## [0.2.2] - 2026-09-07
 
 Entrega de robustez del cliente HTTP (tickets 1-8 de `docs/backlog-mejoras.md`).
