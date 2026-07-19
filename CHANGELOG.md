@@ -9,6 +9,15 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 _Nada por ahora._
 
+## [0.2.1] - 2026-07-19
+
+### Corregido
+
+- **Packaging**: se añade la condición `default` a `exports` (además de `import`),
+  para que los consumidores que resuelven en CommonJS (ts-node, jest en CJS, `tsx`
+  en proyectos sin `"type": "module"`) no fallen con `ERR_PACKAGE_PATH_NOT_EXPORTED`
+  al hacer `require()` del paquete. La resolución ESM ya funcionaba.
+
 ## [0.2.0] - 2026-07-19
 
 ### Añadido
@@ -100,7 +109,9 @@ vía la API OpenData de AEMET, con 5 herramientas verificadas contra la API real
 - No se inventan ni mockean datos en producción: si un endpoint de AEMET falla, el
   error se propaga de forma clara.
 
-[No publicado]: https://github.com/rldona/aemet-mcp/compare/v0.1.2...HEAD
+[No publicado]: https://github.com/rldona/aemet-mcp/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/rldona/aemet-mcp/compare/v0.2.0...v0.2.1
+[0.2.0]: https://github.com/rldona/aemet-mcp/compare/v0.1.2...v0.2.0
 [0.1.2]: https://github.com/rldona/aemet-mcp/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/rldona/aemet-mcp/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/rldona/aemet-mcp/releases/tag/v0.1.0

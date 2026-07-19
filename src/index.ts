@@ -17,7 +17,7 @@ import type { GetClient } from "./tools/shared.js";
 async function main(): Promise<void> {
   const server = new McpServer({
     name: "aemet-mcp",
-    version: "0.1.2",
+    version: "0.2.1",
   });
 
   const apiKey = process.env.AEMET_API_KEY ?? "";
