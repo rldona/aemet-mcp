@@ -1,5 +1,8 @@
 # aemet-mcp
 
+[![CI](https://github.com/rldona/aemet-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/rldona/aemet-mcp/actions/workflows/ci.yml)
+[![npm](https://img.shields.io/npm/v/@rldona/aemet-mcp)](https://www.npmjs.com/package/@rldona/aemet-mcp)
+
 > npm: **`@rldona/aemet-mcp`** · `npx -y @rldona/aemet-mcp`
 
 Servidor **MCP** (Model Context Protocol) para el **tiempo oficial de España**.

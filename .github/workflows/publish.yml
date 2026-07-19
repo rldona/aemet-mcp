@@ -1,0 +1,48 @@
+name: Publish to npm
+
+# Publica @rldona/aemet-mcp en el registro público de npm al crear una Release.
+# Requiere el secret NPM_TOKEN (token "Automation" de tu cuenta npmjs.com/~rldona):
+#   Settings -> Secrets and variables -> Actions -> New repository secret
+#     NPM_TOKEN = npm_xxx...
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch: # permite lanzarlo a mano desde la pestaña Actions
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # habilita provenance en npm
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: https://registry.npmjs.org
+
+      - run: npm ci
+
+      - name: Verifica que el tag coincide con la versión del package.json
+        if: github.event_name == 'release'
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          PKG=$(node -p "require('./package.json').version")
+          if [ "$TAG" != "$PKG" ]; then
+            echo "::error::El tag ($TAG) no coincide con package.json ($PKG)"
+            exit 1
+          fi
+
+      - name: Test + build
+        run: |
+          npm run typecheck
+          npm test
+          npm run build
+
+      - name: Publish
+        run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
