@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { untar } from "../src/aemet/tar.js";
+import { gzipSync } from "node:zlib";
 import { parseCapAlert, extraerAvisos } from "../src/aemet/avisos.js";
 import { resolverArea } from "../src/aemet/areas.js";
 
@@ -151,5 +152,42 @@ describe("resolverArea", () => {
 
   it("lanza error claro para CCAA desconocida", () => {
     expect(() => resolverArea("Baviera")).toThrow(/No se reconoce/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Descompresión acotada (ticket 3)
+// ---------------------------------------------------------------------------
+
+describe("extraerAvisos: tope de descompresión", () => {
+  it("rechaza un gzip que se expande por encima del tope", () => {
+    // Un tar de ceros comprime muchísimo: 512 KB -> unos pocos cientos de bytes.
+    const tar = new Uint8Array(512 * 1024);
+    const comprimido = new Uint8Array(gzipSync(tar));
+    expect(comprimido.byteLength).toBeLessThan(tar.byteLength / 100);
+
+    expect(() =>
+      extraerAvisos(comprimido, Date.now(), { maxBytesDescomprimidos: 1024 }),
+    ).toThrowError(expect.objectContaining({ code: "TOO_LARGE" }));
+  });
+
+  it("rechaza un tar plano que ya supera el tope", () => {
+    expect(() =>
+      extraerAvisos(new Uint8Array(4096), Date.now(), { maxBytesDescomprimidos: 1024 }),
+    ).toThrowError(expect.objectContaining({ code: "TOO_LARGE" }));
+  });
+
+  it("acepta un tar.gz dentro del tope", () => {
+    const tar = makeTar([
+      {
+        name: "Z_CAP_x.xml",
+        content: capXml({ nivel: "amarillo", expires: "2099-01-01T00:00:00+02:00" }),
+      },
+    ]);
+    const comprimido = new Uint8Array(gzipSync(tar));
+    const res = extraerAvisos(comprimido, Date.now(), {
+      maxBytesDescomprimidos: 1024 * 1024,
+    });
+    expect(res.avisos).toHaveLength(1);
   });
 });

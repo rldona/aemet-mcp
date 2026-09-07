@@ -9,6 +9,71 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 _Nada por ahora._
 
+## [0.2.2] - 2026-09-07
+
+Entrega de robustez del cliente HTTP (tickets 1-8 de `docs/backlog-mejoras.md`).
+Sin cambios incompatibles en la API pública.
+
+### Seguridad
+
+- **La API key ya no puede salir de los hosts de AEMET.** El segundo salto va a la
+  URL que AEMET devuelve en `datos`, que la dicta el servidor. Ahora se valida
+  antes de adjuntar la cabecera `api_key`: solo HTTPS y solo `opendata.aemet.es` o
+  `www.aemet.es` (configurable con `allowedHosts`). Nueva función pública
+  `validarUrlDatos` y constante `AEMET_HOSTS`.
+- **No se siguen redirecciones** (`redirect: "manual"`): `fetch` no elimina las
+  cabeceras propias al cruzar de origen —solo `Authorization` y `Cookie`—, así que
+  un `Location` externo habría filtrado la key. Un 3xx produce `UNSAFE_URL`.
+- **Tope de tamaño por respuesta** (`maxBytes`, 32 MiB por defecto). Se comprueba
+  primero `Content-Length` y, si el cuerpo llega por stream, se corta en cuanto se
+  supera, sin materializar la respuesta entera. Nuevo error `TOO_LARGE`.
+- **Descompresión acotada**: `gunzipSync` deja de poder expandir sin límite y el
+  extractor tar aplica topes de entradas y de bytes extraídos.
+- Fijadas por `overrides` las versiones parcheadas de cinco dependencias
+  transitivas del SDK MCP (`ip-address`, `hono`, `@hono/node-server`, `qs`,
+  `fast-uri`). `npm audit --omit=dev` pasa de 2 altas y 3 moderadas a cero.
+
+### Añadido
+
+- **Timeout por intento** (`timeoutMs`, 15 s por defecto) mediante
+  `AbortSignal.timeout`, que cubre también la lectura del cuerpo. Nuevo error
+  `TIMEOUT`. Antes no había ningún timeout y un socket colgado dejaba el servidor
+  MCP esperando indefinidamente, bloqueando el turno del agente.
+- `Retry-After` se respeta ante un 429 (segundos o fecha HTTP), acotado a 30 s.
+- Jitter en el backoff exponencial (mitad fija, mitad aleatoria), con `random`
+  inyectable para tests.
+- Los `5xx` transitorios se reintentan también en el primer salto.
+- Nuevas opciones de `AemetClientOptions`: `timeoutMs`, `maxBytes`,
+  `allowedHosts`, `random`.
+- Nuevas exportaciones: `validarUrlDatos`, `AEMET_HOSTS`, `DEFAULT_TIMEOUT_MS`,
+  `DEFAULT_MAX_BYTES`, `readOctal`, `UntarOptions`, `DEFAULT_MAX_ENTRIES`,
+  `DEFAULT_MAX_TOTAL_BYTES`.
+- **Smoke test del servidor MCP**: arranca `dist/index.js`, completa el handshake
+  por stdio, comprueba el inventario de herramientas y su versión. `src/index.ts`
+  no tenía ninguna cobertura. En CI el build pasa a ejecutarse antes de los tests.
+
+### Cambiado
+
+- **`maxRetries` es ahora un presupuesto global por operación**, compartido por los
+  dos saltos. Los bucles anidados (reintentos HTTP dentro de reintentos por 429) se
+  multiplicaban: con `maxRetries: 3` el peor caso eran 16 peticiones y, sumando
+  timeouts, minutos de bloqueo. Ahora `maxRetries: 3` son como mucho 4 peticiones.
+- El cuerpo de la respuesta se lee dentro del intento con timeout y reintentos, no
+  después: un corte a mitad de descarga ahora se reintenta.
+
+### Corregido
+
+- **El extractor tar ya no acepta archivos truncados ni cabeceras corruptas.**
+  Validaba que la cabecera cupiera en el buffer, pero no el contenido: una entrada
+  que declaraba más bytes de los que quedaban devolvía un `subarray` corto y el
+  fallo aparecía más tarde, al parsear el CAP. Además `readOctal` devolvía `0`
+  tanto para un campo vacío como para uno corrupto, con lo que una cabecera basura
+  se leía como fichero de tamaño cero y el recorrido seguía desalineado. Ahora
+  ambos casos lanzan `PARSE` con un mensaje explícito, y la codificación GNU
+  base-256 se declara no soportada en vez de leerse mal.
+- **La versión anunciada por MCP se inyecta en build desde `package.json`.** Estaba
+  escrita a mano en `src/index.ts` y ya había divergido; un test lo impide ahora.
+
 ## [0.2.1] - 2026-07-19
 
 ### Corregido

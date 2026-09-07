@@ -28,8 +28,11 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
+      # El build va ANTES de los tests: el smoke test del servidor MCP arranca
+      # dist/index.js como proceso hijo.
+      - name: Build
+        run: npm run build
+
       - name: Tests (unitarios; los de integración se saltan sin AEMET_API_KEY)
         run: npm test
 
-      - name: Build
-        run: npm run build

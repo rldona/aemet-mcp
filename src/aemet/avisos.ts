@@ -1,7 +1,8 @@
 import { gunzipSync } from "node:zlib";
 import type { AemetClient } from "./client.js";
 import { TtlCache } from "./cache.js";
-import { untar } from "./tar.js";
+import { AemetError } from "./errors.js";
+import { untar, type UntarOptions } from "./tar.js";
 
 export type NivelAviso = "amarillo" | "naranja" | "rojo";
 
@@ -27,10 +28,45 @@ const NIVEL_ORDEN: Record<NivelAviso, number> = { rojo: 3, naranja: 2, amarillo:
 // Caché propia (los avisos se re-elaboran cada pocas horas; TTL 10 min).
 const cache = new TtlCache<ResultadoAvisos>(10 * 60_000);
 
-/** Descomprime si viene en gzip; si `fetch` ya lo descomprimió, es un tar plano. */
-function aTar(bytes: Uint8Array): Uint8Array {
+/** Tope por defecto de bytes descomprimidos. Un área CAP real ronda los cientos de KB. */
+export const DEFAULT_MAX_DESCOMPRIMIDO = 64 * 1024 * 1024;
+
+/**
+ * Descomprime si viene en gzip; si `fetch` ya lo descomprimió, es un tar plano.
+ *
+ * `maxOutputLength` acota la expansión: sin él, un gzip de unos pocos KB puede
+ * expandirse hasta agotar la memoria del proceso.
+ */
+function aTar(bytes: Uint8Array, maxBytes: number): Uint8Array {
   const esGzip = bytes[0] === 0x1f && bytes[1] === 0x8b;
-  return esGzip ? new Uint8Array(gunzipSync(bytes)) : bytes;
+  if (!esGzip) {
+    if (bytes.byteLength > maxBytes) throw errorDemasiadoGrande(maxBytes);
+    return bytes;
+  }
+  try {
+    return new Uint8Array(gunzipSync(bytes, { maxOutputLength: maxBytes }));
+  } catch (cause) {
+    // Node lanza ERR_BUFFER_TOO_LARGE al superar maxOutputLength.
+    if ((cause as { code?: string }).code === "ERR_BUFFER_TOO_LARGE") {
+      throw errorDemasiadoGrande(maxBytes);
+    }
+    throw new AemetError(
+      "PARSE",
+      `No se pudo descomprimir el fichero de avisos de AEMET: ${(cause as Error).message}`,
+    );
+  }
+}
+
+function errorDemasiadoGrande(maxBytes: number): AemetError {
+  return new AemetError(
+    "TOO_LARGE",
+    `El fichero de avisos de AEMET supera el máximo descomprimido (${maxBytes} bytes).`,
+  );
+}
+
+export interface ExtraerAvisosOptions extends UntarOptions {
+  /** Tope de bytes tras descomprimir. Def: 64 MiB. */
+  maxBytesDescomprimidos?: number;
 }
 
 function decodeEntities(s: string): string {
@@ -103,8 +139,13 @@ export function parseCapAlert(xml: string, now: number): Aviso | null {
 }
 
 /** Extrae y ordena los avisos vigentes de un tar(.gz) de CAP. Función pura. */
-export function extraerAvisos(bytes: Uint8Array, now: number): ResultadoAvisos {
-  const files = untar(aTar(bytes)).filter((f) => f.name.endsWith(".xml"));
+export function extraerAvisos(
+  bytes: Uint8Array,
+  now: number,
+  opts: ExtraerAvisosOptions = {},
+): ResultadoAvisos {
+  const tar = aTar(bytes, opts.maxBytesDescomprimidos ?? DEFAULT_MAX_DESCOMPRIMIDO);
+  const files = untar(tar, opts).filter((f) => f.name.endsWith(".xml"));
   const avisos: Aviso[] = [];
   let elaborado: string | undefined;
 

@@ -189,11 +189,12 @@ const { avisos } = await obtenerAvisos(client, andalucia.codigo);
 | Áreas / avisos | `AREAS`, `resolverArea`, `areaParaMunicipio`, `obtenerAvisos`, `extraerAvisos`, `parseCapAlert`, `claveAviso` |
 | Estaciones | `resolverEstacion`, `pareceIdema` |
 | Formateadores | `formatDiaria`, `formatHoraria`, `formatObservacion`, `formatAvisos`, `formatMunicipios` |
-| Bajo nivel | `untar` |
+| Bajo nivel | `untar`, `readOctal`, `validarUrlDatos`, `AEMET_HOSTS` |
 | Tipos | `PrediccionDiariaMunicipio`, `PrediccionHorariaMunicipio`, `Observacion`, `Municipio`, `Aviso`, `NivelAviso`, `ResultadoAvisos`, … |
 
-El `AemetClient` acepta opciones (`maxRetries`, `backoffBaseMs`, `fetchImpl`,
-`sleep`) además de `apiKey`. Los tipos van incluidos (`dist/lib.d.ts`).
+El `AemetClient` acepta opciones (`timeoutMs`, `maxBytes`, `maxRetries`,
+`backoffBaseMs`, `allowedHosts`, `fetchImpl`, `sleep`) además de `apiKey`. Los
+tipos van incluidos (`dist/lib.d.ts`).
 
 📖 **Referencia completa** (todas las funciones, tipos, rutas de endpoint y recetas
 para una web del tiempo): [docs/library.md](./docs/library.md).
