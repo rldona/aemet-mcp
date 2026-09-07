@@ -3,14 +3,28 @@ import type { AemetClient } from "./client.js";
 import { TtlCache } from "./cache.js";
 import { AemetError } from "./errors.js";
 import { untar, type UntarOptions } from "./tar.js";
+import { parsePoligono, puntoEnPoligono, type Punto } from "./geo.js";
 
 export type NivelAviso = "amarillo" | "naranja" | "rojo";
+
+/** Zona geográfica cubierta por un aviso. Un aviso puede cubrir varias. */
+export interface ZonaAviso {
+  /** Nombre de la zona, p. ej. "Cuenca del Genil". */
+  descripcion: string;
+  /** Código de zona de AEMET-Meteoalerta, p. ej. "611801". */
+  codigo?: string;
+  /** Contornos de la zona. Una zona puede tener varios (islas, enclaves). */
+  poligonos: Punto[][];
+}
 
 /** Un aviso meteorológico ya parseado y filtrado (vigente, no verde). */
 export interface Aviso {
   nivel: NivelAviso;
   fenomeno: string;
+  /** Primera zona, para el texto de siempre. Ver `zonas` para el alcance real. */
   zona: string;
+  /** Todas las zonas del aviso: un mismo CAP puede cubrir decenas. */
+  zonas: ZonaAviso[];
   onset?: string;
   expires?: string;
   descripcion?: string;
@@ -84,6 +98,28 @@ function tag(xml: string, name: string): string | undefined {
   return m ? decodeEntities(m[1]!.trim()) : undefined;
 }
 
+/**
+ * Zonas del bloque <info>: cada <area> trae su nombre, su código de zona y uno o
+ * varios polígonos. AEMET emite avisos que cubren decenas de zonas en un único
+ * fichero CAP, así que quedarse con la primera daba una idea falsa del alcance.
+ */
+function parseZonas(infoXml: string): ZonaAviso[] {
+  const zonas: ZonaAviso[] = [];
+  for (const bloque of infoXml.match(/<area>[\s\S]*?<\/area>/g) ?? []) {
+    const descripcion = tag(bloque, "areaDesc");
+    if (!descripcion) continue;
+    const poligonos = (bloque.match(/<polygon>([\s\S]*?)<\/polygon>/g) ?? [])
+      .map((p) => parsePoligono(p.replace(/<\/?polygon>/g, "")))
+      .filter((p) => p.length > 0);
+    zonas.push({
+      descripcion,
+      codigo: parametro(bloque, "AEMET-Meteoalerta zona"),
+      poligonos,
+    });
+  }
+  return zonas;
+}
+
 /** Valor de un <parameter> por su <valueName>. */
 function parametro(infoXml: string, valueName: string): string | undefined {
   const re = new RegExp(
@@ -127,10 +163,13 @@ export function parseCapAlert(xml: string, now: number): Aviso | null {
     ? fenParam.split(";").slice(1).join(";").trim()
     : (fenParam ?? tag(infoEs, "event") ?? "Fenómeno meteorológico");
 
+  const zonas = parseZonas(infoEs);
+
   return {
     nivel: nivelRaw,
     fenomeno,
-    zona: tag(infoEs, "areaDesc") ?? "—",
+    zona: zonas[0]?.descripcion ?? tag(infoEs, "areaDesc") ?? "—",
+    zonas,
     onset: tag(infoEs, "onset"),
     expires,
     descripcion: tag(infoEs, "description"),
@@ -186,4 +225,34 @@ export async function obtenerAvisos(
     );
     return extraerAvisos(bytes, now);
   });
+}
+
+/**
+ * Filtra los avisos que cubren un punto concreto.
+ *
+ * Un aviso entra si alguna de sus zonas contiene el punto. Las zonas sin
+ * polígono utilizable no se pueden evaluar: se conservan en `sinGeometria`
+ * en lugar de descartarse, porque descartar en silencio un aviso rojo por no
+ * saber dibujarlo es peor que mostrarlo de más.
+ */
+export function avisosParaPunto(
+  avisos: Aviso[],
+  punto: Punto,
+): { dentro: Aviso[]; sinGeometria: Aviso[] } {
+  const dentro: Aviso[] = [];
+  const sinGeometria: Aviso[] = [];
+
+  for (const aviso of avisos) {
+    const conGeometria = aviso.zonas.filter((z) => z.poligonos.length > 0);
+    if (conGeometria.length === 0) {
+      sinGeometria.push(aviso);
+      continue;
+    }
+    const zonas = conGeometria.filter((z) =>
+      z.poligonos.some((p) => puntoEnPoligono(punto, p)),
+    );
+    if (zonas.length > 0) dentro.push({ ...aviso, zonas, zona: zonas[0]!.descripcion });
+  }
+
+  return { dentro, sinGeometria };
 }

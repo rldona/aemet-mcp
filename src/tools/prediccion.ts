@@ -7,7 +7,13 @@ import type {
   PrediccionDiariaMunicipio,
   PrediccionHorariaMunicipio,
 } from "../aemet/types.js";
-import { runTool, text, type GetClient } from "./shared.js";
+import { runTool, structured, type GetClient } from "./shared.js";
+import {
+  aSalidaPrediccionDiaria,
+  aSalidaPrediccionHoraria,
+  salidaPrediccionDiaria,
+  salidaPrediccionHoraria,
+} from "./schemas.js";
 
 const municipioArg = z
   .string()
@@ -38,6 +44,7 @@ export function registerPrediccionTools(
           .optional()
           .describe("Número de días a incluir (1-7). Por defecto 7."),
       },
+      outputSchema: salidaPrediccionDiaria,
     },
     async ({ municipio, dias }) =>
       runTool(async () => {
@@ -48,7 +55,11 @@ export function registerPrediccionTools(
         );
         const pred = data[0];
         if (!pred) throw new Error(`AEMET no devolvió predicción para ${m.nombre} (${m.codigo}).`);
-        return text(formatDiaria(pred, dias ?? 7));
+        const n = dias ?? 7;
+        return structured(
+          formatDiaria(pred, n),
+          aSalidaPrediccionDiaria(m, pred, n),
+        );
       }),
   );
 
@@ -69,6 +80,7 @@ export function registerPrediccionTools(
           .optional()
           .describe("Días a incluir (1-2): hoy y mañana. Por defecto 2."),
       },
+      outputSchema: salidaPrediccionHoraria,
     },
     async ({ municipio, dias }) =>
       runTool(async () => {
@@ -79,7 +91,11 @@ export function registerPrediccionTools(
         );
         const pred = data[0];
         if (!pred) throw new Error(`AEMET no devolvió predicción para ${m.nombre} (${m.codigo}).`);
-        return text(formatHoraria(pred, dias ?? 2));
+        const n = dias ?? 2;
+        return structured(
+          formatHoraria(pred, n),
+          aSalidaPrediccionHoraria(m, pred, n),
+        );
       }),
   );
 }

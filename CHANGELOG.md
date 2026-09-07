@@ -9,6 +9,68 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 _Nada por ahora._
 
+## [0.4.0] - 2026-09-07
+
+Geografía y salidas estructuradas (tickets 15-20 de `docs/backlog-mejoras.md`).
+Tres herramientas nuevas: 5 -> 8.
+
+### Añadido
+
+- **Provincia en municipios.** Cada municipio expone `provincia`, derivada de los
+  dos primeros dígitos del código INE con una tabla de 52 entradas. No hace falta
+  regenerar `municipios.json`: los 8.132 municipios usan exactamente esos 52
+  prefijos. Los homónimos se desambiguan mostrando provincia y código
+  ("La Zarza (Badajoz)" frente a "La Zarza (Valladolid)").
+
+- **Nombres naturales.** El INE guarda "Campello, el" y "Coruña, A", así que
+  buscar "El Campello" o "A Coruña" —como los escribe cualquiera— no encontraba
+  nada; son 611 municipios del dataset. Ahora cada nombre se indexa por su forma
+  del INE, su forma natural y su base sin artículo, en castellano, catalán,
+  gallego y balear. `Municipio` gana `nombreNatural` para mostrar.
+
+- **`structuredContent` en todas las herramientas.** Cada tool declara
+  `outputSchema` y devuelve los datos tipados además del texto de siempre, que se
+  mantiene intacto por compatibilidad. Lo que AEMET no da es `null`, nunca
+  ausente ni cadena vacía, y las unidades van en la descripción de cada campo.
+
+- **`buscar_estacion`**: estaciones por nombre, provincia o idema, con
+  coordenadas y altitud. El inventario las publica como DMS empaquetado
+  (`402441N`) y se convierten a grados decimales.
+
+- **`observacion_municipio`**: el tiempo actual cerca de un municipio sin tener
+  que saber qué estación lo mide. Resuelve el municipio, coge sus coordenadas del
+  maestro de AEMET, ordena las estaciones por distancia y devuelve la primera con
+  datos —muchas son solo climatológicas y responden 404—, diciendo a qué
+  distancia está y de cuándo es el dato.
+
+- **`avisos_municipio`**: avisos que afectan a un municipio concreto. Los CAP de
+  AEMET traen el polígono de cada zona, así que el filtro es geométrico, no una
+  aproximación por provincia. Con datos reales, de 22 avisos vigentes en
+  Andalucía le afectaban 1 a Granada, 2 a Sevilla y ninguno a Almería. El campo
+  `alcance` dice siempre si se pudo acotar al municipio o si se está devolviendo
+  la comunidad entera.
+
+- API de librería: `provinciaPorCodigo`, `nombreNatural`, `variantesNombre`,
+  `etiquetaMunicipio`, `coordenadasMunicipio`, `puntoEnPoligono`, `parsePoligono`,
+  `parseCoordenadaDMS`, `distanciaKm`, `estacionesCercanas`, `buscarEstaciones`,
+  `inventarioEstaciones`, `avisosParaPunto` y los formateadores nuevos.
+
+### Corregido
+
+- **Un aviso CAP puede cubrir decenas de zonas y solo se leía la primera**, lo que
+  daba una idea falsa del alcance territorial. `Aviso` gana `zonas` con el nombre,
+  el código y los polígonos de todas.
+
+### Cambiado — INCOMPATIBLE
+
+- `Municipio` gana los campos requeridos `provincia` y `nombreNatural`. Afecta a
+  quien construyera un `Municipio` a mano desde la librería; quien solo los
+  consuma no nota nada.
+- `variantesNombre` devuelve `{ principales, secundarias }` en lugar de un array.
+  La separación no es cosmética: la base sin artículo no puede competir como
+  coincidencia exacta, porque "La Granada" (Barcelona) tiene base "Granada" y
+  volvía ambiguo un nombre que antes resolvía a Granada capital.
+
 ## [0.3.0] - 2026-09-07
 
 Resolución formal de la compatibilidad ESM/CommonJS (ticket 9 de

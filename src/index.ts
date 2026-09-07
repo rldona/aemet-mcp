@@ -4,7 +4,9 @@ import { AemetClient } from "./aemet/client.js";
 import { registerBuscarMunicipio } from "./tools/municipio.js";
 import { registerPrediccionTools } from "./tools/prediccion.js";
 import { registerObservacionTool } from "./tools/observacion.js";
-import { registerAvisosTool } from "./tools/avisos.js";
+import { registerAvisosTool, registerAvisosMunicipio } from "./tools/avisos.js";
+import { registerBuscarEstacion } from "./tools/estacion.js";
+import { registerObservacionMunicipio } from "./tools/observacionMunicipio.js";
 import type { GetClient } from "./tools/shared.js";
 
 /**
@@ -35,15 +37,18 @@ async function main(): Promise<void> {
   };
 
   registerBuscarMunicipio(server);
+  registerBuscarEstacion(server, getClient);
   registerPrediccionTools(server, getClient);
   registerObservacionTool(server, getClient);
+  registerObservacionMunicipio(server, getClient);
   registerAvisosTool(server, getClient);
+  registerAvisosMunicipio(server, getClient);
 
   const transport = new StdioServerTransport();
   await server.connect(transport);
 
   // stdout es el canal del protocolo MCP: los diagnósticos van a stderr.
-  console.error("[aemet-mcp] servidor iniciado (stdio) — 5 herramientas");
+  console.error("[aemet-mcp] servidor iniciado (stdio) — 8 herramientas");
 }
 
 main().catch((error) => {

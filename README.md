@@ -84,17 +84,26 @@ En `~/.cursor/mcp.json` (o Settings → MCP → Add):
 
 ## Herramientas
 
-| Herramienta            | Entrada                               | Devuelve |
-|------------------------|---------------------------------------|----------|
-| `buscar_municipio`     | `nombre`                              | Municipios coincidentes + código INE. |
-| `prediccion_diaria`    | `municipio` (nombre o código), `dias?`| Predicción diaria (1-7 días): máx/mín, cielo, prob. lluvia, viento. |
-| `prediccion_horaria`   | `municipio`, `dias?`                  | Predicción hora a hora (hoy y mañana). |
-| `observacion_estacion` | `estacion?` (idema o nombre)          | Última observación (por defecto Madrid-Retiro). |
-| `avisos`               | `area` (CCAA)                         | Avisos meteorológicos vigentes (nivel, zona, periodo). |
+| Herramienta             | Entrada                                | Devuelve |
+|-------------------------|----------------------------------------|----------|
+| `buscar_municipio`      | `nombre`                               | Municipios coincidentes + código INE + provincia. |
+| `buscar_estacion`       | `consulta`, `limite?`                  | Estaciones de AEMET con idema, provincia, coordenadas y altitud. |
+| `prediccion_diaria`     | `municipio` (nombre o código), `dias?` | Predicción diaria (1-7 días): máx/mín, cielo, prob. lluvia, viento. |
+| `prediccion_horaria`    | `municipio`, `dias?`                   | Predicción hora a hora (hoy y mañana). |
+| `observacion_estacion`  | `estacion?` (idema o nombre)           | Última observación (por defecto Madrid-Retiro). |
+| `observacion_municipio` | `municipio`, `estacion?`               | Tiempo actual en la estación con datos más cercana, con distancia. |
+| `avisos`                | `area` (CCAA)                          | Avisos meteorológicos vigentes (nivel, zona, periodo). |
+| `avisos_municipio`      | `municipio`                            | Avisos que afectan a ese municipio, acotados por geometría. |
 
-Los nombres se resuelven a código INE con tolerancia a acentos/mayúsculas; si un
-nombre es ambiguo (p. ej. "Villanueva"), la herramienta devuelve las opciones con
-su código para desambiguar.
+Los nombres se resuelven a código INE con tolerancia a acentos, mayúsculas y
+artículos: `El Campello`, `Campello` y `Campello, el` (la forma del INE) llevan al
+mismo sitio. Si un nombre es ambiguo (p. ej. "Villanueva" o "La Zarza", que existe
+en Badajoz y en Valladolid), la herramienta devuelve las opciones con su provincia
+y su código para desambiguar.
+
+Todas las herramientas declaran `outputSchema` y devuelven `structuredContent`
+además del texto, así que un agente puede consumir los valores tipados —fechas,
+códigos, grados, porcentajes— sin parsear prosa.
 
 ### Ejemplos de salida
 

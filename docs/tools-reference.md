@@ -5,6 +5,10 @@ ejemplos y errores. Los nombres y descripciones son los que ve el modelo.
 
 ---
 
+> Todas las herramientas declaran `outputSchema` y devuelven `structuredContent`
+> además del texto. Los valores van tipados (números como números, fechas ISO) y
+> lo que AEMET no da es `null`, nunca ausente ni cadena vacía.
+
 ## `buscar_municipio`
 
 Busca municipios españoles por nombre y devuelve su código INE de 5 dígitos.
@@ -142,6 +146,70 @@ Elaborado: 2026-07-18 21:50:01
 Si no hay avisos activos: `Sin avisos meteorológicos activos en <CCAA> ahora mismo.`
 
 **Errores** — CCAA desconocida → mensaje con la lista de válidas.
+
+---
+
+## `buscar_estacion`
+
+Estaciones meteorológicas de AEMET por nombre, provincia o idema, con coordenadas.
+
+**Entrada**
+
+| Campo | Tipo | Req. | Descripción |
+|-------|------|:----:|-------------|
+| `consulta` | string | sí | Nombre de estación o ciudad, provincia o idema. |
+| `limite` | number | no | Máximo de resultados (1-50). Por defecto 20. |
+
+**Salida estructurada**: `{ consulta, total, estaciones: [{ idema, nombre,
+provincia, latitud, longitud, altitud }] }`. Las coordenadas van en grados
+decimales (negativas al oeste); el inventario de AEMET las publica como DMS
+empaquetado (`402441N`) y se convierten aquí.
+
+---
+
+## `observacion_municipio`
+
+Tiempo observado ahora mismo cerca de un municipio. Resuelve el municipio, obtiene
+sus coordenadas del maestro de AEMET, ordena las estaciones por distancia y
+devuelve la observación de la más cercana **que tenga datos**: muchas estaciones
+del inventario son solo climatológicas y responden 404, así que se prueban hasta
+cinco antes de rendirse.
+
+**Entrada**
+
+| Campo | Tipo | Req. | Descripción |
+|-------|------|:----:|-------------|
+| `municipio` | string | sí | Nombre o código INE de 5 dígitos. |
+| `estacion` | string | no | Idema de una de las candidatas, para forzarla. |
+
+**Salida estructurada**: los valores de observación más `estacion` (con
+`distanciaKm`) y `candidatas`, la lista de estaciones próximas ordenadas por
+distancia, para poder pedir otra.
+
+Frente a `observacion_estacion`, esta no exige saber qué estación mide un sitio, y
+dice explícitamente a qué distancia está el dato y de cuándo es.
+
+---
+
+## `avisos_municipio`
+
+Avisos vigentes que afectan a un municipio concreto, no a toda su comunidad.
+
+**Entrada**
+
+| Campo | Tipo | Req. | Descripción |
+|-------|------|:----:|-------------|
+| `municipio` | string | sí | Nombre o código INE de 5 dígitos. |
+
+Los CAP de AEMET traen el **polígono** de cada zona de aviso, así que el filtro es
+geométrico: se comprueba si el punto del municipio cae dentro. Con datos reales,
+de 22 avisos vigentes en Andalucía, a Granada le afectaban 1 y a Almería ninguno.
+
+**Salida estructurada**: además de los avisos, `alcance` dice qué se está mirando
+—`"municipio"` si se pudo acotar, `"comunidad"` si no— junto a `total` y
+`totalComunidad`. Un aviso cuya zona no trae geometría **no se descarta**: se
+incluye y el alcance pasa a `"comunidad"`, porque ocultar en silencio un aviso
+rojo por no saber dibujarlo es peor que mostrarlo de más.
 
 ---
 
