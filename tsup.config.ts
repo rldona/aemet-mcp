@@ -10,7 +10,7 @@ const { version } = JSON.parse(readFileSync("./package.json", "utf8")) as {
 
 const base = {
   format: ["esm"] as const,
-  target: "node18" as const,
+  target: "node20" as const,
   platform: "node" as const,
   outDir: "dist",
   sourcemap: true,

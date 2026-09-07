@@ -32,8 +32,13 @@ códigos ni JSON crudo.
 
 ## Requisitos
 
-- Node.js ≥ 18
+- Node.js ≥ 20.19
 - Una **API key gratuita de AEMET OpenData**.
+
+El paquete es **ESM-only**: se publica un único build ES module, sin build
+CommonJS. Aun así se puede consumir desde CommonJS con `require()`, porque Node
+≥ 20.19 soporta `require(esm)` — de ahí ese suelo exacto. En Node 18 el
+`import()` dinámico funciona, pero `require()` falla con `ERR_REQUIRE_ESM`.
 
 ### Obtener la API key
 
@@ -150,6 +155,9 @@ avisos (tar + CAP XML).
 > ⚠️ La API key va **siempre en el servidor** (variable de entorno), nunca en el
 > navegador.
 
+El paquete es ESM-only (ver [Requisitos](#requisitos)): `import` desde ESM, o
+`require()` desde CommonJS en Node ≥ 20.19.
+
 ```ts
 import {
   AemetClient,
@@ -229,6 +237,7 @@ npm install
 npm test                 # unitarios (fetch mockeado; sin API key)
 npm run typecheck
 npm run build
+npm run test:pack        # valida el tarball instalado en un proyecto limpio
 
 # Test de integración real contra AEMET:
 AEMET_API_KEY=xxx npx vitest run test/integration.aemet.test.ts
