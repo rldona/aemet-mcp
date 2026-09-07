@@ -11,7 +11,10 @@ backoff, dataset de municipios del INE, áreas CAP por CCAA y parseo de avisos
 (tar + CAP XML).
 
 - **Entry point**: `@rldona/aemet-mcp` → `dist/lib.js` (ESM), tipos en `dist/lib.d.ts`.
-- **Node** ≥ 18. No arranca ningún servidor MCP al importar la librería.
+- **Node** ≥ 20.19. No arranca ningún servidor MCP al importar la librería.
+- **ESM-only**: no se publica build CommonJS. Desde CJS se puede usar `require()`
+  igualmente, porque Node ≥ 20.19 soporta `require(esm)`; en Node 18 solo funciona
+  el `import()` dinámico.
 
 > ⚠️ **Seguridad**: la API key va **siempre en el servidor** (`AEMET_API_KEY`),
 > nunca en el navegador. No expongas la key ni proxies sin control de origen.

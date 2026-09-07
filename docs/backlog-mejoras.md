@@ -48,6 +48,13 @@ Cuatro puntos donde leer el código altera lo que el ticket debe hacer:
    lanzando `ERR_REQUIRE_ESM`. Hay un fix publicado que no funciona. Esto sube el
    ticket a la primera mitad del backlog. A favor: el README no promete CJS, así
    que no hay documentación que rectificar.
+
+   *Matiz tras resolverlo*: el problema era la combinación, no la condición. A
+   partir de Node 20.19 existe `require(esm)`, así que sobre ese suelo la
+   resolución sí habría funcionado; lo que la invalidaba era el `engines: >=18`
+   que el propio paquete declaraba. Comprobado en Node 18.20.8 (`import()` sí,
+   `require()` no) y en 20.19.6 (ambos sí). Resuelto declarando el paquete
+   ESM-only con `engines: >=20.19`.
 2. **El diagnóstico de la agregación diaria es impreciso** (`A11`). `pickPeriodo`
    en `src/aemet/format.ts` busca `"00-24"` primero y solo cae a `arr[0]` si no
    existe; en los días 0-2 AEMET sí devuelve `00-24`. El ticket se reconvierte en
@@ -71,8 +78,8 @@ Cuatro puntos donde leer el código altera lo que el ticket debe hacer:
 
 ## Tickets
 
-Las filas marcadas con ✅ están entregadas. La entrega **v0.2.2** (tickets 1-8) se
-cerró el 2026-09-07.
+Las filas marcadas con ✅ están entregadas: **v0.2.2** completa (tickets 1-8) y los
+tickets 9 y 10 de **v0.3.0**, todo el 2026-09-07.
 
 
 | # | ID | Ticket | Prioridad | Tipo | Est. | Depende de | Criterios de aceptación |
@@ -85,8 +92,8 @@ cerró el 2026-09-07.
 | 6 | A1 | ✅ Actualizar dependencias de producción | P1 | Seguridad | S | — | `@modelcontextprotocol/sdk` a 1.30 y lockfile actualizado; las transitivas vulnerables que el SDK sigue arrastrando (`ip-address`, `hono`, `@hono/node-server`, `qs`, `fast-uri`) quedan fijadas a su versión parcheada mediante `overrides`, documentando que son de los transportes HTTP que este servidor no usa; `npm audit --omit=dev` sin vulnerabilidades altas ni críticas; pasan tests, typecheck y build en Node 18, 20 y 22. |
 | 7 | N2 | ✅ Smoke test del arranque y el handshake MCP | P1 | Testing | S | — | Un test lanza `dist/index.js` como proceso hijo, completa el handshake MCP por stdio y verifica que se registran las 5 herramientas esperadas con sus nombres; falla si el servidor no arranca o si cambia el inventario de tools sin actualizar el test. Hoy `src/index.ts` no tiene ninguna cobertura: ningún test arranca el servidor. Adelantado desde `A18` porque son ~30 líneas y cubren el riesgo de regresión más caro del proyecto. |
 | 8 | A24 | ✅ Eliminar la versión duplicada del servidor MCP | P2 | Mantenimiento | S | 7 | La versión anunciada en `src/index.ts` deja de estar escrita a mano (hoy `"0.2.1"` literal) y se inyecta en build con `define` de tsup o se lee de `package.json`; el smoke test del ticket 7 comprueba que coincide con la versión publicada. |
-| 9 | A5 | Resolver formalmente la compatibilidad ESM/CommonJS | P1 | Packaging | M | — | Se elige una de las dos salidas y se ejecuta entera: (a) build CJS real con `format: ["esm","cjs"]` en tsup y condición `require` apuntando al `.cjs`, o (b) paquete declarado ESM-only, `engines` subido a `>=20.19` y documentado. En ambos casos se elimina la condición `"default"` actual, que hoy induce a error; el tarball se prueba con `import()` y `require()` en todas las versiones de Node soportadas. |
-| 10 | A21 | Probar el paquete npm empaquetado en CI | P2 | CI/Packaging | M | 9 | CI ejecuta `npm pack`, instala el tarball en un proyecto temporal y valida binario, imports públicos, tipos, permisos de ejecución y arranque MCP. |
+| 9 | A5 | ✅ Resolver formalmente la compatibilidad ESM/CommonJS | P1 | Packaging | M | — | Se elige una de las dos salidas y se ejecuta entera: (a) build CJS real con `format: ["esm","cjs"]` en tsup y condición `require` apuntando al `.cjs`, o (b) paquete declarado ESM-only, `engines` subido a `>=20.19` y documentado. En ambos casos se elimina la condición `"default"` actual, que hoy induce a error; el tarball se prueba con `import()` y `require()` en todas las versiones de Node soportadas. |
+| 10 | A21 | ✅ Probar el paquete npm empaquetado en CI | P2 | CI/Packaging | M | 9 | CI ejecuta `npm pack`, instala el tarball en un proyecto temporal y valida binario, imports públicos, tipos, permisos de ejecución y arranque MCP. |
 | 11 | A19 | Incluir los tests en el typecheck | P2 | Testing | S | — | Existe una configuración TypeScript que cubre `test/` (hoy `tsconfig.json` lo excluye explícitamente); CI comprueba código productivo y tests; se eliminan los casts incorrectos que aparezcan. |
 | 12 | A22 | Añadir auditoría de dependencias a CI | P2 | CI/Seguridad | S | 6 | La CI falla ante vulnerabilidades altas o críticas de producción; el criterio y las excepciones quedan documentados. |
 | 13 | A15 | Seleccionar explícitamente la observación más reciente | P2 | Corrección | S | — | `formatObservacion` deja de asumir que el último elemento del array es el más reciente y compara `fint`; las fechas ausentes o inválidas se gestionan explícitamente; hay prueba con registros desordenados. Bajado de P1: AEMET devuelve orden cronológico, es fragilidad, no un fallo observado. |

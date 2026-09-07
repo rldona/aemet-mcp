@@ -47,11 +47,18 @@ jobs:
             exit 1
           fi
 
-      - name: Test + build
+      # El build va ANTES de los tests: el smoke test del servidor MCP arranca
+      # dist/index.js como proceso hijo.
+      - name: Typecheck + build + tests
         run: |
           npm run typecheck
-          npm test
           npm run build
+          npm test
+
+      # Última red antes de publicar: valida el tarball tal y como lo recibirá
+      # quien lo instale (resolución ESM/CJS, tipos, binario, arranque MCP).
+      - name: Validar el paquete empaquetado
+        run: npm run test:pack
 
       # Sin NODE_AUTH_TOKEN: npm se autentica por OIDC contra el Trusted Publisher.
       # `--provenance` es necesario para adjuntar la atestación (no es automática).
