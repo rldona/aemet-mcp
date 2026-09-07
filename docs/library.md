@@ -56,11 +56,34 @@ new AemetClient(opts: AemetClientOptions)
 interface AemetClientOptions {
   apiKey: string;              // requerido; si falta -> AemetError("MISSING_API_KEY")
   fetchImpl?: typeof fetch;    // inyectable (tests / fetch personalizado). Def: global
-  maxRetries?: number;         // reintentos ante 429/red/5xx. Def: 3
+  maxRetries?: number;         // presupuesto GLOBAL de reintentos. Def: 3
   backoffBaseMs?: number;      // base del backoff exponencial (ms). Def: 500
   sleep?: (ms: number) => Promise<void>; // inyectable (tests). Def: setTimeout
+  timeoutMs?: number;          // timeout por intento (ms). Def: 15000
+  maxBytes?: number;           // tope por respuesta. Def: 32 MiB
+  allowedHosts?: readonly string[]; // hosts a los que se envía la key. Def: AEMET_HOSTS
+  random?: () => number;       // inyectable (tests): jitter. Def: Math.random
 }
 ```
+
+**`maxRetries` es un presupuesto global por operación**, compartido por los dos
+saltos: `maxRetries: 3` son como mucho 4 peticiones en total, no 4 por salto. Antes
+los bucles anidados se multiplicaban y, con timeouts, una operación podía tardar
+minutos.
+
+**Timeout.** Cada intento lleva `AbortSignal.timeout(timeoutMs)`, que cubre también
+la lectura del cuerpo. Un timeout es reintentable; si se agotan los reintentos, el
+error es `TIMEOUT`.
+
+**Reintentos.** Se reintentan timeouts, cortes de red y `5xx` en ambos saltos. Ante
+un 429 se respeta la cabecera `Retry-After` (segundos o fecha HTTP), acotada a 30 s;
+si no la hay, backoff exponencial con jitter (mitad fija, mitad aleatoria). Los
+errores permanentes (`UNSAFE_URL`, `TOO_LARGE`, 401, 404) no se reintentan.
+
+**Hosts autorizados.** El segundo salto va a la URL que AEMET devuelve en `datos`.
+Antes de reenviar ahí la cabecera `api_key` se valida que sea HTTPS y de un host de
+`AEMET_HOSTS` (`opendata.aemet.es`, `www.aemet.es`), y no se siguen redirecciones.
+Se puede sustituir la lista con `allowedHosts`.
 
 ### `fetchJson<T>(path, ttlMs?): Promise<T>`
 
@@ -129,7 +152,10 @@ try {
 | `RATE_LIMITED` | Límite superado (tras reintentos) | 429 |
 | `UPSTREAM` | Otro estado / 5xx persistente | var. |
 | `NETWORK` | Fallo de red tras reintentos | — |
-| `PARSE` | Respuesta no parseable | — |
+| `TIMEOUT` | Sin respuesta en `timeoutMs`, tras reintentos | — |
+| `TOO_LARGE` | La respuesta supera `maxBytes` | — |
+| `UNSAFE_URL` | AEMET apuntó a un host/esquema no autorizado, o redirigió | var. |
+| `PARSE` | Respuesta no parseable (incluye tar corrupto o truncado) | — |
 
 `describeEstado(estado, descripcion?): string` — mensaje legible para un código de
 estado de AEMET.
@@ -190,7 +216,10 @@ INE) — útil para dar los avisos de la comunidad de un municipio concreto.
 obtenerAvisos(client, codigoArea, now?): Promise<ResultadoAvisos>
 // Descarga el tar.gz, lo descomprime, parsea el CAP y filtra a vigentes. Cacheado.
 
-extraerAvisos(bytes: Uint8Array, now: number): ResultadoAvisos   // función pura
+extraerAvisos(bytes, now, opts?): ResultadoAvisos                // función pura
+// opts: { maxBytesDescomprimidos?, maxEntries?, maxTotalBytes? }
+// Acota la descompresión (def. 64 MiB) y el tar; los excesos lanzan
+// AemetError TOO_LARGE / PARSE.
 parseCapAlert(xml: string, now: number): Aviso | null           // un CAP XML -> Aviso
 claveAviso(a: Aviso): string   // clave estable para deduplicar (p. ej. notificaciones)
 ```

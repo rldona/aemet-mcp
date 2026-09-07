@@ -4,6 +4,21 @@ import type { AemetEnvelope } from "./types.js";
 
 const BASE_URL = "https://opendata.aemet.es/opendata/api";
 
+/**
+ * Hosts a los que es aceptable enviar la cabecera `api_key`.
+ *
+ * El segundo salto va a la URL que AEMET devuelve en el campo `datos`: es una
+ * URL que nos dicta el servidor, no una que construyamos nosotros. Antes de
+ * reenviar la key ahí se comprueba contra esta lista.
+ */
+export const AEMET_HOSTS = ["opendata.aemet.es", "www.aemet.es"] as const;
+
+/** Tiempo máximo por intento (ms). */
+export const DEFAULT_TIMEOUT_MS = 15_000;
+
+/** Tope de bytes por descarga. El fichero mayor, el inventario, ronda 1 MB. */
+export const DEFAULT_MAX_BYTES = 32 * 1024 * 1024;
+
 /** TTL por defecto (ms). */
 export const TTL = {
   prediccion: 10 * 60_000, // ~10 min
@@ -15,15 +30,77 @@ export interface AemetClientOptions {
   apiKey: string;
   /** Inyectable para tests. Por defecto el fetch global. */
   fetchImpl?: typeof fetch;
-  /** Reintentos ante 429. Por defecto 3. */
+  /**
+   * Reintentos ante fallos transitorios. Por defecto 3. Es un presupuesto
+   * GLOBAL por operación, compartido por los dos saltos: `maxRetries: 3`
+   * significa como mucho 4 peticiones en total, no 4 por salto.
+   */
   maxRetries?: number;
   /** Base del backoff exponencial en ms. Por defecto 500. */
   backoffBaseMs?: number;
   /** Inyectable para tests: espera de backoff. */
   sleep?: (ms: number) => Promise<void>;
+  /** Timeout por intento en ms. Por defecto 15 s. */
+  timeoutMs?: number;
+  /** Tope de bytes por respuesta. Por defecto 32 MiB. */
+  maxBytes?: number;
+  /** Hosts autorizados para la URL de `datos`. Por defecto `AEMET_HOSTS`. */
+  allowedHosts?: readonly string[];
+  /** Inyectable para tests: aleatoriedad del jitter. Por defecto Math.random. */
+  random?: () => number;
 }
 
 const defaultSleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+/**
+ * Presupuesto de reintentos de una operación completa (los dos saltos).
+ *
+ * Compartirlo evita que los bucles anidados (reintentos HTTP dentro de
+ * reintentos por `estado` 429) se multipliquen: con `maxRetries: 3` el peor
+ * caso eran 16 peticiones, y con timeout de 15 s eso son minutos de bloqueo.
+ */
+interface Presupuesto {
+  /** Reintentos que quedan. */
+  restantes: number;
+  /** Reintentos ya gastados: fija el exponente del backoff. */
+  usados: number;
+}
+
+/** Respuesta ya leída: el cuerpo se consume dentro del intento con timeout. */
+interface RespuestaCruda {
+  status: number;
+  ok: boolean;
+  bytes: Uint8Array;
+  headers?: Headers;
+}
+
+/** ¿El fallo viene de que saltó el `AbortSignal.timeout`? */
+function esTimeout(cause: unknown): boolean {
+  const name = (cause as { name?: string } | null)?.name;
+  return name === "TimeoutError" || name === "AbortError";
+}
+
+/** Lee una cabecera de forma defensiva (los mocks de test no traen `headers`). */
+function cabecera(res: { headers?: Headers }, nombre: string): string | null {
+  try {
+    return res.headers?.get?.(nombre) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * `Retry-After` en ms, o null. Admite las dos formas del RFC: segundos
+ * ("120") y fecha HTTP ("Wed, 21 Oct 2026 07:28:00 GMT").
+ */
+function retryAfterMs(valor: string | null, ahora: number): number | null {
+  if (!valor) return null;
+  const segundos = Number(valor.trim());
+  if (Number.isFinite(segundos) && segundos >= 0) return segundos * 1000;
+  const fecha = Date.parse(valor);
+  if (Number.isFinite(fecha)) return Math.max(0, fecha - ahora);
+  return null;
+}
 
 /**
  * Repara texto doblemente codificado ("AndÃºjar" -> "Andújar").
@@ -73,14 +150,48 @@ export function reparaProfundo<T>(valor: T): T {
 }
 
 /**
+ * Comprueba que una URL de `datos` es segura antes de enviarle la API key:
+ * HTTPS y host de AEMET. Devuelve la URL normalizada.
+ */
+export function validarUrlDatos(
+  raw: string,
+  permitidos: readonly string[] = AEMET_HOSTS,
+): string {
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    throw new AemetError(
+      "UNSAFE_URL",
+      `AEMET devolvió una URL de datos ilegible: ${raw.slice(0, 200)}`,
+    );
+  }
+  if (url.protocol !== "https:") {
+    throw new AemetError(
+      "UNSAFE_URL",
+      `AEMET devolvió una URL de datos no HTTPS (${url.protocol}//${url.host}); no se envía la API key.`,
+    );
+  }
+  const host = url.hostname.toLowerCase();
+  if (!permitidos.some((h) => host === h.toLowerCase())) {
+    throw new AemetError(
+      "UNSAFE_URL",
+      `AEMET devolvió una URL de datos en un host no autorizado (${host}); no se envía la API key.`,
+    );
+  }
+  return url.toString();
+}
+
+/**
  * Cliente de la API OpenData de AEMET.
  *
  * Encapsula el patrón de DOS PASOS de AEMET:
  *   1) GET al endpoint -> sobre JSON `{ estado, descripcion, datos, metadatos }`.
  *   2) GET a la URL de `datos` -> contenido real (habitualmente latin1).
  *
- * Mapea los códigos `estado` (200/401/404/429/otros) a `AemetError` tipados y
- * reintenta con backoff exponencial ante 429.
+ * Mapea los códigos `estado` (200/401/404/429/otros) a `AemetError` tipados,
+ * reintenta con backoff exponencial y jitter, respeta `Retry-After`, aplica
+ * timeout por intento y no envía la API key fuera de los hosts de AEMET.
  */
 export class AemetClient {
   private readonly apiKey: string;
@@ -88,6 +199,10 @@ export class AemetClient {
   private readonly maxRetries: number;
   private readonly backoffBaseMs: number;
   private readonly sleep: (ms: number) => Promise<void>;
+  private readonly timeoutMs: number;
+  private readonly maxBytes: number;
+  private readonly allowedHosts: readonly string[];
+  private readonly random: () => number;
   private readonly cache = new TtlCache<unknown>(TTL.prediccion);
 
   constructor(opts: AemetClientOptions) {
@@ -102,6 +217,10 @@ export class AemetClient {
     this.maxRetries = opts.maxRetries ?? 3;
     this.backoffBaseMs = opts.backoffBaseMs ?? 500;
     this.sleep = opts.sleep ?? defaultSleep;
+    this.timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+    this.maxBytes = opts.maxBytes ?? DEFAULT_MAX_BYTES;
+    this.allowedHosts = opts.allowedHosts ?? AEMET_HOSTS;
+    this.random = opts.random ?? Math.random;
   }
 
   /**
@@ -112,6 +231,34 @@ export class AemetClient {
     return this.fetchOverride ?? globalThis.fetch;
   }
 
+  private nuevoPresupuesto(): Presupuesto {
+    return { restantes: this.maxRetries, usados: 0 };
+  }
+
+  /** Consume un reintento si queda presupuesto. */
+  private consumir(p: Presupuesto): boolean {
+    if (p.restantes <= 0) return false;
+    p.restantes--;
+    p.usados++;
+    return true;
+  }
+
+  /**
+   * Espera antes del siguiente intento. Usa `Retry-After` si el servidor lo
+   * indica; si no, backoff exponencial con jitter (la mitad fija, la mitad
+   * aleatoria) para no sincronizar reintentos entre procesos.
+   */
+  private async esperar(p: Presupuesto, res?: RespuestaCruda): Promise<void> {
+    const indicado = res ? retryAfterMs(cabecera(res, "retry-after"), Date.now()) : null;
+    if (indicado !== null) {
+      // Cota superior: un Retry-After largo no debe colgar el turno del agente.
+      await this.sleep(Math.min(indicado, 30_000));
+      return;
+    }
+    const base = this.backoffBaseMs * 2 ** (p.usados - 1);
+    await this.sleep(base / 2 + this.random() * (base / 2));
+  }
+
   /**
    * Ejecuta el patrón de dos pasos y devuelve el contenido de `datos` como texto
    * decodificado. AEMET mezcla codificaciones según el endpoint (el maestro va
@@ -119,15 +266,7 @@ export class AemetClient {
    * UTF-8 estricto y, si los bytes no son UTF-8 válido, latin1.
    */
   private async fetchDatosText(path: string): Promise<string> {
-    const envelope = await this.fetchEnvelope(path);
-    if (!envelope.datos) {
-      throw new AemetError(
-        "UPSTREAM",
-        `AEMET devolvió estado 200 pero sin URL de datos para ${path}.`,
-        envelope.estado,
-      );
-    }
-    const bytes = await this.fetchBytes(envelope.datos);
+    const bytes = await this.fetchDatosBytes(path);
     let text: string;
     try {
       text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
@@ -139,7 +278,8 @@ export class AemetClient {
 
   /** Igual que fetchDatosText pero devuelve los bytes crudos (para tar.gz/CAP). */
   async fetchDatosBytes(path: string): Promise<Uint8Array> {
-    const envelope = await this.fetchEnvelope(path);
+    const presupuesto = this.nuevoPresupuesto();
+    const envelope = await this.fetchEnvelope(path, presupuesto);
     if (!envelope.datos) {
       throw new AemetError(
         "UPSTREAM",
@@ -147,7 +287,7 @@ export class AemetClient {
         envelope.estado,
       );
     }
-    return this.fetchBytes(envelope.datos);
+    return this.fetchBytes(envelope.datos, presupuesto);
   }
 
   /**
@@ -174,64 +314,162 @@ export class AemetClient {
   }
 
   /**
-   * fetch con reintentos ante fallos de red TRANSITORIOS (el servidor de datos
-   * de AEMET corta conexiones de vez en cuando). No reintenta errores HTTP: de
-   * esos se encarga la lógica de `estado`.
+   * Lee el cuerpo con tope de tamaño. Prefiere el stream (corta en cuanto se
+   * pasa, sin materializar la respuesta entera); si no hay `body` legible
+   * —mocks de test, runtimes viejos— cae a `arrayBuffer` y comprueba después.
+   */
+  private async leerBytes(res: Response, contexto: string): Promise<Uint8Array> {
+    const declarado = Number(cabecera(res, "content-length"));
+    if (Number.isFinite(declarado) && declarado > this.maxBytes) {
+      throw this.errorDemasiadoGrande(declarado, contexto);
+    }
+
+    const body = res.body;
+    if (!body || typeof body.getReader !== "function") {
+      const buf = new Uint8Array(await res.arrayBuffer());
+      if (buf.byteLength > this.maxBytes) {
+        throw this.errorDemasiadoGrande(buf.byteLength, contexto);
+      }
+      return buf;
+    }
+
+    const reader = body.getReader();
+    const trozos: Uint8Array[] = [];
+    let total = 0;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!value) continue;
+      total += value.byteLength;
+      if (total > this.maxBytes) {
+        await reader.cancel().catch(() => {});
+        throw this.errorDemasiadoGrande(total, contexto);
+      }
+      trozos.push(value);
+    }
+    const out = new Uint8Array(total);
+    let offset = 0;
+    for (const t of trozos) {
+      out.set(t, offset);
+      offset += t.byteLength;
+    }
+    return out;
+  }
+
+  private errorDemasiadoGrande(bytes: number, contexto: string): AemetError {
+    const mib = (n: number) => `${(n / 1024 / 1024).toFixed(1)} MiB`;
+    return new AemetError(
+      "TOO_LARGE",
+      `La respuesta de AEMET ${contexto} supera el máximo aceptado ` +
+        `(${mib(bytes)} > ${mib(this.maxBytes)}).`,
+    );
+  }
+
+  /**
+   * Un intento HTTP con timeout, más reintentos ante fallos transitorios
+   * (timeout, corte de red y 5xx, que en el servidor de datos de AEMET son
+   * habituales). El cuerpo se lee aquí dentro para que quede cubierto por el
+   * mismo timeout que la cabecera. No sigue redirecciones: reenviar la API key
+   * a donde apunte un `Location` es justo lo que se quiere evitar.
    */
   private async doFetch(
     url: string,
     init: RequestInit,
     contexto: string,
-    retryHttp5xx = false,
-  ): Promise<Response> {
-    for (let attempt = 0; attempt <= this.maxRetries; attempt++) {
+    presupuesto: Presupuesto,
+  ): Promise<RespuestaCruda> {
+    for (;;) {
       try {
-        const res = await this.fetchImpl(url, init);
-        // 5xx en el servidor de datos suele ser transitorio: reintentamos.
-        if (retryHttp5xx && res.status >= 500 && attempt < this.maxRetries) {
-          await this.sleep(this.backoffBaseMs * 2 ** attempt);
+        const res = await this.fetchImpl(url, {
+          ...init,
+          redirect: "manual",
+          signal: AbortSignal.timeout(this.timeoutMs),
+        });
+
+        if (res.status >= 300 && res.status < 400) {
+          const destino = cabecera(res, "location") ?? "(sin Location)";
+          throw new AemetError(
+            "UNSAFE_URL",
+            `AEMET respondió con una redirección ${contexto} hacia ${destino}; ` +
+              "no se sigue para no reenviar la API key.",
+            res.status,
+          );
+        }
+
+        if (res.status >= 500) {
+          const cruda: RespuestaCruda = {
+            status: res.status,
+            ok: false,
+            bytes: new Uint8Array(0),
+            headers: res.headers,
+          };
+          if (this.consumir(presupuesto)) {
+            await this.esperar(presupuesto, cruda);
+            continue;
+          }
+          throw new AemetError(
+            "UPSTREAM",
+            `AEMET devolvió HTTP ${res.status} ${contexto} tras agotar los reintentos.`,
+            res.status,
+          );
+        }
+
+        return {
+          status: res.status,
+          ok: res.ok,
+          bytes: await this.leerBytes(res, contexto),
+          headers: res.headers,
+        };
+      } catch (cause) {
+        // Los errores propios (redirección, tamaño) son permanentes: no se reintentan.
+        if (cause instanceof AemetError) throw cause;
+
+        const porTimeout = esTimeout(cause);
+        if (this.consumir(presupuesto)) {
+          await this.esperar(presupuesto);
           continue;
         }
-        return res;
-      } catch (cause) {
-        if (attempt < this.maxRetries) {
-          await this.sleep(this.backoffBaseMs * 2 ** attempt);
-          continue;
+        const intentos = presupuesto.usados + 1;
+        if (porTimeout) {
+          throw new AemetError(
+            "TIMEOUT",
+            `AEMET no respondió ${contexto} en ${this.timeoutMs} ms (${intentos} intentos).`,
+          );
         }
         throw new AemetError(
           "NETWORK",
-          `Fallo de red ${contexto} tras ${this.maxRetries + 1} intentos: ${(cause as Error).message}`,
+          `Fallo de red ${contexto} tras ${intentos} intentos: ${(cause as Error).message}`,
         );
       }
     }
-    // Solo se llega aquí si agotamos reintentos por 5xx.
-    throw new AemetError(
-      "UPSTREAM",
-      `AEMET devolvió errores 5xx ${contexto} tras ${this.maxRetries + 1} intentos.`,
-    );
   }
 
-  /** Primer salto: obtiene y valida el sobre. Reintenta ante 429. */
-  private async fetchEnvelope(path: string): Promise<AemetEnvelope> {
+  /** Primer salto: obtiene y valida el sobre. Reintenta ante `estado` 429. */
+  private async fetchEnvelope(
+    path: string,
+    presupuesto: Presupuesto,
+  ): Promise<AemetEnvelope> {
     const url = `${BASE_URL}${path}`;
+    const contexto = `llamando a AEMET (${path})`;
 
-    for (let attempt = 0; ; attempt++) {
+    for (;;) {
       const res = await this.doFetch(
         url,
         { headers: { api_key: this.apiKey, Accept: "application/json" } },
-        `llamando a AEMET (${path})`,
+        contexto,
+        presupuesto,
       );
 
       // AEMET responde el sobre con HTTP 200; pero 401/429 pueden llegar a
       // nivel HTTP. Intentamos leer el sobre y, si no hay, usamos el status HTTP.
-      const envelope = await this.tryParseEnvelope(res);
+      const envelope = this.parseEnvelope(res.bytes);
       const estado = envelope?.estado ?? res.status;
 
       if (estado === 200 && envelope) return envelope;
 
       if (estado === 429) {
-        if (attempt < this.maxRetries) {
-          await this.sleep(this.backoffBaseMs * 2 ** attempt);
+        if (this.consumir(presupuesto)) {
+          await this.esperar(presupuesto, res);
           continue;
         }
         throw this.errorForEstado(429, envelope?.descripcion);
@@ -241,11 +479,10 @@ export class AemetClient {
     }
   }
 
-  private async tryParseEnvelope(res: Response): Promise<AemetEnvelope | null> {
+  private parseEnvelope(bytes: Uint8Array): AemetEnvelope | null {
     try {
       // El sobre JSON también viene en latin1: la `descripcion` lleva acentos
       // (p. ej. "límites"). Decodificar como UTF-8 los rompería.
-      const bytes = new Uint8Array(await res.arrayBuffer());
       const text = new TextDecoder("latin1").decode(bytes);
       const data = JSON.parse(text) as Partial<AemetEnvelope>;
       if (typeof data?.estado === "number") return data as AemetEnvelope;
@@ -270,12 +507,17 @@ export class AemetClient {
   }
 
   /** Segundo salto: descarga el fichero de `datos` como bytes. */
-  private async fetchBytes(datosUrl: string): Promise<Uint8Array> {
+  private async fetchBytes(
+    datosUrl: string,
+    presupuesto: Presupuesto,
+  ): Promise<Uint8Array> {
+    // La URL la dicta AEMET: se valida ANTES de adjuntar la API key.
+    const url = validarUrlDatos(datosUrl, this.allowedHosts);
     const res = await this.doFetch(
-      datosUrl,
+      url,
       { headers: { api_key: this.apiKey } },
       "descargando el fichero de datos de AEMET",
-      true, // reintentar 5xx transitorios del servidor de datos
+      presupuesto,
     );
     if (!res.ok) {
       throw new AemetError(
@@ -284,6 +526,6 @@ export class AemetClient {
         res.status,
       );
     }
-    return new Uint8Array(await res.arrayBuffer());
+    return res.bytes;
   }
 }

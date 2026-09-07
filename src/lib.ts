@@ -8,10 +8,14 @@
 // avisos (tar + CAP XML). Esta entrada NO arranca ningún servidor MCP.
 
 export {
+  AEMET_HOSTS,
   AemetClient,
+  DEFAULT_MAX_BYTES,
+  DEFAULT_TIMEOUT_MS,
   TTL,
   reparaMojibake,
   reparaProfundo,
+  validarUrlDatos,
   type AemetClientOptions,
 } from "./aemet/client.js";
 
@@ -31,16 +35,25 @@ export {
 export { AREAS, areaParaMunicipio, resolverArea } from "./aemet/areas.js";
 
 export {
+  DEFAULT_MAX_DESCOMPRIMIDO,
   claveAviso,
   extraerAvisos,
   obtenerAvisos,
   parseCapAlert,
   type Aviso,
+  type ExtraerAvisosOptions,
   type NivelAviso,
   type ResultadoAvisos,
 } from "./aemet/avisos.js";
 
-export { untar, type TarEntry } from "./aemet/tar.js";
+export {
+  DEFAULT_MAX_ENTRIES,
+  DEFAULT_MAX_TOTAL_BYTES,
+  readOctal,
+  untar,
+  type TarEntry,
+  type UntarOptions,
+} from "./aemet/tar.js";
 
 export {
   pareceIdema,

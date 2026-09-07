@@ -1,6 +1,6 @@
 {
   "name": "@rldona/aemet-mcp",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "Servidor MCP para el tiempo oficial de España (API pública OpenData de AEMET). Predicción, observación y avisos como herramientas MCP tipadas.",
   "type": "module",
   "license": "MIT",
@@ -50,7 +50,7 @@
     "prepublishOnly": "npm run build"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.12.0",
+    "@modelcontextprotocol/sdk": "^1.30.0",
     "zod": "^3.24.1"
   },
   "devDependencies": {
@@ -67,5 +67,12 @@
       "import": "./dist/lib.js",
       "default": "./dist/lib.js"
     }
+  },
+  "overrides": {
+    "@hono/node-server": "^1.19.17",
+    "fast-uri": "^3.1.7",
+    "hono": "^4.13.7",
+    "ip-address": "^10.7.0",
+    "qs": "^6.16.0"
   }
 }
