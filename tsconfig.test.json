@@ -1,0 +1,17 @@
+{
+  // Typecheck de los tests, que `tsconfig.json` excluye a propósito: ese fichero
+  // describe lo que se compila y publica (rootDir `src`), no lo que se revisa.
+  // Sin esto, los tests solo los validaba el transpilador de vitest, que borra
+  // los tipos sin comprobarlos: un cast mal puesto pasaba desapercibido.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "noEmit": true,
+    "declaration": false,
+    "sourceMap": false
+  },
+  // `exclude` se hereda del fichero base, y allí incluye "test": hay que
+  // reescribirlo entero o esta configuración no comprobaría ningún test.
+  "exclude": ["node_modules", "dist"],
+  "include": ["src", "test"]
+}

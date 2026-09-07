@@ -64,3 +64,22 @@ jobs:
 
       - name: Validar el paquete empaquetado
         run: npm run test:pack
+
+  # Falla ante vulnerabilidades ALTAS o CRÍTICAS en dependencias de PRODUCCIÓN.
+  # Las de desarrollo no viajan en el paquete, así que no bloquean el merge.
+  # Criterio y vía de excepción documentados en SECURITY.md.
+  audit:
+    runs-on: ubuntu-latest
+    name: audit (dependencias de producción)
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Auditoría de dependencias de producción
+        run: npm run audit:prod

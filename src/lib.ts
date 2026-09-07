@@ -67,6 +67,8 @@ export {
   formatHoraria,
   formatMunicipios,
   formatObservacion,
+  observacionMasReciente,
+  probPrecipitacionDia,
 } from "./aemet/format.js";
 
 export type {

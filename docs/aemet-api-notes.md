@@ -78,6 +78,31 @@ Por eso el cliente **no asume una sola codificación**, sino que:
 - `{idema}`: identificador de estación (p. ej. `3195` = Madrid-Retiro).
 - `{codigoArea}`: 2 dígitos por CCAA (ver tabla).
 
+## Predicción diaria: estructura de periodos (VERIFICADO)
+
+Capturado el 2026-09-07 de Madrid (28079), A Coruña (15030) y Sevilla (41091). Las
+tres respuestas coincidían, así que parece estructura del producto y no del
+municipio.
+
+`prediccion.dia[]` trae 7 días con **dos formas distintas** según la lejanía:
+
+| Días | Elementos por campo | Periodos |
+|------|--------------------:|----------|
+| 0-3 | 7 (días 0-1) o 3 (días 2-3) | `00-24` **siempre presente**, más subperiodos: `00-12`, `12-24` y, en los dos primeros días, `00-06`, `06-12`, `12-18`, `18-24` |
+| 4-6 | 1 | **sin campo `periodo`**: el único elemento representa el día entero |
+
+Consecuencias para el formateo:
+
+- Buscar `periodo === "00-24"` y, si no está, coger el primer elemento es correcto
+  en las dos formas: en los días 0-3 el `00-24` existe, y en los 4-6 el primero es
+  el único y ya es el día completo. No hay ningún caso en que se coja un
+  subperiodo arbitrario haciéndolo pasar por el día.
+- **`value` mezcla tipos**: la probabilidad de precipitación llega como cadena en
+  los días 0-3 y como número (`0`) en los 4-6. El tipo `RangoHorario` lo refleja.
+- El día 0 conserva los periodos ya pasados: a las 20:30 locales seguían estando
+  los siete, incluido `00-06`. No hay que asumir que la lista se recorta según
+  avanza el día.
+
 ## Avisos: tar.gz de CAP XML
 
 El endpoint de avisos **no devuelve JSON**, sino un `tar.gz` de ficheros XML en
