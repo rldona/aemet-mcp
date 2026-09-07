@@ -60,6 +60,15 @@ Cuatro puntos donde leer el código altera lo que el ticket debe hacer:
    existe; en los días 0-2 AEMET sí devuelve `00-24`. El ticket se reconvierte en
    un spike: capturar un payload real y comprobar cuándo falla de verdad antes de
    tocar código.
+
+   *Resultado del spike*: **el fallo no se reproduce**. Con payloads reales de
+   Madrid, A Coruña y Sevilla, los días 0-3 traen siempre `00-24` y los días 4-6
+   traen un único elemento **sin** campo `periodo`, que ya es el día entero. El
+   fallback a `arr[0]` solo se activa en el segundo caso, donde es correcto por
+   ser el único elemento: no hay ningún escenario en que se presente un
+   subperiodo como el día. Estructura documentada en `docs/aemet-api-notes.md`.
+   El ticket se cierra con fixtures de regresión, un endurecimiento defensivo del
+   agregado de lluvia y una corrección de tipos (`value` puede ser número).
 3. **Añadir provincia es mucho más barato de lo estimado** (`A8`). Los dos
    primeros dígitos del código INE *son* el código de provincia: basta una tabla
    de 52 entradas y derivarla, sin regenerar `src/data/municipios.json` ni tocar
@@ -78,8 +87,8 @@ Cuatro puntos donde leer el código altera lo que el ticket debe hacer:
 
 ## Tickets
 
-Las filas marcadas con ✅ están entregadas: **v0.2.2** completa (tickets 1-8) y los
-tickets 9 y 10 de **v0.3.0**, todo el 2026-09-07.
+Las filas marcadas con ✅ están entregadas: **v0.2.2** completa (tickets 1-8) y
+**v0.3.0** completa (tickets 9-14), todo el 2026-09-07.
 
 
 | # | ID | Ticket | Prioridad | Tipo | Est. | Depende de | Criterios de aceptación |
@@ -94,10 +103,10 @@ tickets 9 y 10 de **v0.3.0**, todo el 2026-09-07.
 | 8 | A24 | ✅ Eliminar la versión duplicada del servidor MCP | P2 | Mantenimiento | S | 7 | La versión anunciada en `src/index.ts` deja de estar escrita a mano (hoy `"0.2.1"` literal) y se inyecta en build con `define` de tsup o se lee de `package.json`; el smoke test del ticket 7 comprueba que coincide con la versión publicada. |
 | 9 | A5 | ✅ Resolver formalmente la compatibilidad ESM/CommonJS | P1 | Packaging | M | — | Se elige una de las dos salidas y se ejecuta entera: (a) build CJS real con `format: ["esm","cjs"]` en tsup y condición `require` apuntando al `.cjs`, o (b) paquete declarado ESM-only, `engines` subido a `>=20.19` y documentado. En ambos casos se elimina la condición `"default"` actual, que hoy induce a error; el tarball se prueba con `import()` y `require()` en todas las versiones de Node soportadas. |
 | 10 | A21 | ✅ Probar el paquete npm empaquetado en CI | P2 | CI/Packaging | M | 9 | CI ejecuta `npm pack`, instala el tarball en un proyecto temporal y valida binario, imports públicos, tipos, permisos de ejecución y arranque MCP. |
-| 11 | A19 | Incluir los tests en el typecheck | P2 | Testing | S | — | Existe una configuración TypeScript que cubre `test/` (hoy `tsconfig.json` lo excluye explícitamente); CI comprueba código productivo y tests; se eliminan los casts incorrectos que aparezcan. |
-| 12 | A22 | Añadir auditoría de dependencias a CI | P2 | CI/Seguridad | S | 6 | La CI falla ante vulnerabilidades altas o críticas de producción; el criterio y las excepciones quedan documentados. |
-| 13 | A15 | Seleccionar explícitamente la observación más reciente | P2 | Corrección | S | — | `formatObservacion` deja de asumir que el último elemento del array es el más reciente y compara `fint`; las fechas ausentes o inválidas se gestionan explícitamente; hay prueba con registros desordenados. Bajado de P1: AEMET devuelve orden cronológico, es fragilidad, no un fallo observado. |
-| 14 | A11 | Verificar y corregir la agregación de la predicción diaria | P1 | Funcional | S→M | — | **Primero un spike**: capturar payloads reales de días 0-2 y 4-7 y documentar qué periodos devuelve AEMET en cada campo. Si se confirma el fallo, la lluvia usa el máximo del día, cielo y viento dejan de depender de `arr[0]`, y se distinguen mañana/tarde/noche cuando no existe `00-24`; en cualquier caso se añaden fixtures con múltiples periodos. La estimación sube a M solo si el spike confirma el problema. |
+| 11 | A19 | ✅ Incluir los tests en el typecheck | P2 | Testing | S | — | Existe una configuración TypeScript que cubre `test/` (hoy `tsconfig.json` lo excluye explícitamente); CI comprueba código productivo y tests; se eliminan los casts incorrectos que aparezcan. |
+| 12 | A22 | ✅ Añadir auditoría de dependencias a CI | P2 | CI/Seguridad | S | 6 | La CI falla ante vulnerabilidades altas o críticas de producción; el criterio y las excepciones quedan documentados. |
+| 13 | A15 | ✅ Seleccionar explícitamente la observación más reciente | P2 | Corrección | S | — | `formatObservacion` deja de asumir que el último elemento del array es el más reciente y compara `fint`; las fechas ausentes o inválidas se gestionan explícitamente; hay prueba con registros desordenados. Bajado de P1: AEMET devuelve orden cronológico, es fragilidad, no un fallo observado. |
+| 14 | A11 | ✅ Verificar y corregir la agregación de la predicción diaria | P1 | Funcional | S→M | — | **Primero un spike**: capturar payloads reales de días 0-2 y 4-7 y documentar qué periodos devuelve AEMET en cada campo. Si se confirma el fallo, la lluvia usa el máximo del día, cielo y viento dejan de depender de `arr[0]`, y se distinguen mañana/tarde/noche cuando no existe `00-24`; en cualquier caso se añaden fixtures con múltiples periodos. La estimación sube a M solo si el spike confirma el problema. |
 | 15 | A8 | Añadir provincia al dataset y resultados de municipios | P1 | Funcional | S | — | Cada municipio expone provincia, derivada de los dos primeros dígitos del código INE mediante una tabla de 52 entradas; no se regenera `municipios.json`; los nombres duplicados se desambiguan mostrando provincia y código INE; se actualizan tipos, formatos y documentación. |
 | 16 | A9 | Soportar nombres naturales y artículos invertidos de municipios | P1 | Funcional | M | 15 | Consultas como "El Campello", "A Coruña" y "La Zarza" encuentran los municipios esperados; se preserva la resolución de los nombres actuales; hay pruebas de regresión. |
 | 17 | A10 | Incorporar salidas MCP estructuradas | P1 | MCP/API | L | 15 | Las herramientas declaran `outputSchema` y devuelven `structuredContent`; conservan el texto actual por compatibilidad; fechas, códigos y valores meteorológicos quedan tipados. |

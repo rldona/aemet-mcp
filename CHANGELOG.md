@@ -53,10 +53,50 @@ Resolución formal de la compatibilidad ESM/CommonJS (ticket 9 de
   porque la resolución de módulos cambia entre versiones de Node. El workflow de
   publicación la ejecuta como último paso antes de `npm publish`.
 
+- **`tsconfig.test.json`**: los tests entran en el typecheck. `tsconfig.json` los
+  excluye a propósito (describe lo que se compila y publica), así que hasta ahora
+  solo los veía el transpilador de vitest, que borra los tipos sin comprobarlos.
+  `npm run typecheck` cubre ahora código productivo y tests. Ojo al heredar: el
+  `exclude` del fichero base contiene `"test"` y hay que reescribirlo entero, o la
+  configuración no comprueba ningún test y pasa siempre.
+
+- **`npm run audit:prod`** (`npm audit --omit=dev --audit-level=high`) y job
+  `audit` en CI, que falla ante vulnerabilidades altas o críticas en dependencias
+  de producción. El criterio, el porqué del umbral y la vía de excepción quedan
+  documentados en `SECURITY.md`.
+
+- `probPrecipitacionDia` y `observacionMasReciente` pasan a formar parte de la API
+  pública de la librería.
+
+### Verificado
+
+- **La agregación de la predicción diaria no estaba mal.** El ticket la daba por
+  rota; con payloads reales de Madrid, A Coruña y Sevilla no se reproduce. AEMET
+  devuelve dos formas: los días 0-3 traen siempre el agregado `00-24` junto a los
+  subperiodos, y los días 4-6 traen un único elemento **sin** campo `periodo` que
+  ya es el día entero. El fallback al primer elemento solo se activa en el segundo
+  caso, donde es correcto por ser el único. Estructura documentada en
+  `docs/aemet-api-notes.md` y fijada con fixtures de regresión.
+
+  Sí se ha endurecido el único caso que sería silenciosamente erróneo si AEMET lo
+  introdujera —varios subperiodos y ningún `00-24`—: la probabilidad de lluvia del
+  día pasa a ser el máximo en vez del primero, que presentaría la madrugada como
+  el día entero.
+
 ### Corregido
 
 - El workflow de publicación ejecutaba `npm test` **antes** de `npm run build`, lo
   que con el smoke test MCP añadido en la 0.2.2 habría roto toda publicación.
+
+- **La observación más reciente se elige comparando `fint`**, no cogiendo el último
+  elemento del array. AEMET lo devuelve en orden cronológico, así que funcionaba,
+  pero era una suposición sobre el proveedor que habría fallado en silencio dando
+  un dato viejo por actual. Los registros sin fecha o con fecha ilegible no
+  compiten; si ninguno la trae, se conserva el criterio anterior.
+
+- **`RangoHorario.value` puede ser número.** AEMET manda la probabilidad de
+  precipitación como cadena en los días 0-3 y como número en los 4-6; el tipo
+  decía `string`.
 
 ## [0.2.2] - 2026-09-07
 

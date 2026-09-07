@@ -6,16 +6,56 @@ import type {
   Observacion,
   PrediccionDiariaMunicipio,
   PrediccionHorariaMunicipio,
+  RangoHorario,
 } from "./types.js";
 import type { Aviso, NivelAviso, ResultadoAvisos } from "./avisos.js";
 
-/** Elige el elemento con `periodo === target` o, en su defecto, el primero. */
+/**
+ * Elige el elemento con `periodo === target` o, en su defecto, el primero.
+ *
+ * El fallback al primero no es arbitrario, aunque lo parezca: AEMET estructura la
+ * predicción diaria en dos formas (verificado en payloads reales, ver
+ * `docs/aemet-api-notes.md`). Los días 0-3 traen siempre el agregado "00-24"
+ * junto a los subperiodos, así que el `find` acierta. Los días 4-6 traen un
+ * ÚNICO elemento sin campo `periodo`, que ya representa el día entero: ahí el
+ * primero es el correcto porque es el único.
+ */
 function pickPeriodo<T extends { periodo?: string }>(
   arr: T[] | undefined,
   target = "00-24",
 ): T | undefined {
   if (!arr || arr.length === 0) return undefined;
   return arr.find((x) => x.periodo === target) ?? arr[0];
+}
+
+/**
+ * Probabilidad de precipitación del día.
+ *
+ * Igual que `pickPeriodo` salvo en un caso que hoy no se da pero que sería
+ * silenciosamente erróneo si AEMET lo introdujera: varios subperiodos y ningún
+ * "00-24". Coger el primero presentaría la probabilidad de la madrugada como la
+ * del día entero; el agregado honesto es el máximo.
+ */
+export function probPrecipitacionDia(
+  arr: RangoHorario[] | undefined,
+): string | number | undefined {
+  if (!arr || arr.length === 0) return undefined;
+
+  const completo = arr.find((x) => x.periodo === "00-24");
+  if (completo) return completo.value;
+  if (arr.length === 1) return arr[0]!.value;
+
+  let mejor: RangoHorario | undefined;
+  let mejorValor = Number.NEGATIVE_INFINITY;
+  for (const x of arr) {
+    const n = Number(x.value);
+    if (!Number.isFinite(n)) continue;
+    if (n > mejorValor) {
+      mejorValor = n;
+      mejor = x;
+    }
+  }
+  return (mejor ?? arr[0]!).value;
 }
 
 const DIAS_SEMANA = ["domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado"];
@@ -60,7 +100,7 @@ export function formatDiaria(pred: PrediccionDiariaMunicipio, maxDias: number): 
   for (const dia of dias) {
     const t = dia.temperatura ?? {};
     const cielo = pickPeriodo(dia.estadoCielo)?.descripcion ?? "—";
-    const prob = pickPeriodo(dia.probPrecipitacion)?.value;
+    const prob = probPrecipitacionDia(dia.probPrecipitacion);
     const viento = pickPeriodo(dia.viento);
 
     const partes = [
@@ -129,6 +169,33 @@ export function formatHoraria(pred: PrediccionHorariaMunicipio, maxDias: number)
 // observacion_estacion
 // ---------------------------------------------------------------------------
 
+/**
+ * Elige la observación más reciente comparando `fint`.
+ *
+ * AEMET devuelve el array en orden cronológico, así que coger el último
+ * funcionaba, pero es una suposición sobre el proveedor que nada garantiza y que
+ * fallaría en silencio dando un dato viejo por actual. Los registros sin `fint`
+ * o con una fecha ilegible no compiten; si ninguno trae fecha usable se conserva
+ * el criterio anterior (el último) en vez de no devolver nada.
+ */
+export function observacionMasReciente(
+  registros: Observacion[],
+): Observacion | undefined {
+  let mejor: Observacion | undefined;
+  let mejorInstante = Number.NEGATIVE_INFINITY;
+
+  for (const r of registros) {
+    const instante = r.fint ? Date.parse(r.fint) : Number.NaN;
+    if (!Number.isFinite(instante)) continue;
+    if (instante > mejorInstante) {
+      mejorInstante = instante;
+      mejor = r;
+    }
+  }
+
+  return mejor ?? registros[registros.length - 1];
+}
+
 export function formatObservacion(
   registros: Observacion[],
   estacionNombre?: string,
@@ -136,8 +203,7 @@ export function formatObservacion(
   if (registros.length === 0) {
     return "La estación no tiene observaciones recientes disponibles.";
   }
-  // El último registro es el más reciente.
-  const o = registros[registros.length - 1]!;
+  const o = observacionMasReciente(registros)!;
   const nombre = estacionNombre ?? o.ubi ?? o.idema;
   const out: string[] = [];
   out.push(`Última observación — ${nombre} (estación ${o.idema})`);

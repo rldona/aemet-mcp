@@ -74,7 +74,12 @@ export interface EstadoCielo {
 }
 
 export interface RangoHorario {
-  value?: string;
+  /**
+   * AEMET mezcla tipos aquí: la probabilidad de precipitación de los días 4-6
+   * llega como número (`0`) y la de los días 0-3 como cadena. Verificado en
+   * payloads reales de Madrid, A Coruña y Sevilla (2026-09-07).
+   */
+  value?: string | number;
   periodo?: string;
 }
 
