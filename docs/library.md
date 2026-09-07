@@ -325,7 +325,8 @@ untar(buf: Uint8Array): TarEntry[]     // TarEntry = { name: string; content: Ui
 
 ## Tipos exportados
 
-`AemetClientOptions`, `AemetErrorCode`, `Municipio`, `Aviso`, `NivelAviso`,
+`AemetClientOptions`, `AemetErrorCode`, `Municipio`, `Aviso`, `ZonaAviso`,
+`Punto`, `EstacionResuelta`, `NivelAviso`,
 `ResultadoAvisos`, `EstacionResuelta`, `TarEntry`, `AemetEnvelope`, `Observacion`,
 `EstacionInventario`, `DiaDiaria`, `DiaHoraria`, `PrediccionDiariaMunicipio`,
 `PrediccionHorariaMunicipio`, `PrediccionMunicipio`.

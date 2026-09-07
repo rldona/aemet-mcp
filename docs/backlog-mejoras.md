@@ -73,6 +73,12 @@ Cuatro puntos donde leer el código altera lo que el ticket debe hacer:
    primeros dígitos del código INE *son* el código de provincia: basta una tabla
    de 52 entradas y derivarla, sin regenerar `src/data/municipios.json` ni tocar
    el pipeline de datos.
+
+   *Confirmado*: los 8.132 municipios del dataset usan exactamente los 52
+   prefijos esperados, así que la tabla los cubre todos sin excepciones. Las
+   coordenadas, que hacían falta para los tickets 19 y 20, tampoco necesitaron
+   dataset nuevo: AEMET las publica en `/maestro/municipios` ya en grados
+   decimales.
 4. **Las vulnerabilidades de producción son reales pero inertes** (`A1`).
    `npm audit --omit=dev` reporta 2 *high* y 3 *moderate* (`ip-address`, `hono`,
    `qs`), todas transitivas de `@modelcontextprotocol/sdk` 1.29 y todas colgando
@@ -87,8 +93,8 @@ Cuatro puntos donde leer el código altera lo que el ticket debe hacer:
 
 ## Tickets
 
-Las filas marcadas con ✅ están entregadas: **v0.2.2** completa (tickets 1-8) y
-**v0.3.0** completa (tickets 9-14), todo el 2026-09-07.
+Las filas marcadas con ✅ están entregadas: **v0.2.2** (tickets 1-8), **v0.3.0**
+(9-14) y **v0.4.0** (15-20), todo el 2026-09-07.
 
 
 | # | ID | Ticket | Prioridad | Tipo | Est. | Depende de | Criterios de aceptación |
@@ -107,12 +113,12 @@ Las filas marcadas con ✅ están entregadas: **v0.2.2** completa (tickets 1-8) 
 | 12 | A22 | ✅ Añadir auditoría de dependencias a CI | P2 | CI/Seguridad | S | 6 | La CI falla ante vulnerabilidades altas o críticas de producción; el criterio y las excepciones quedan documentados. |
 | 13 | A15 | ✅ Seleccionar explícitamente la observación más reciente | P2 | Corrección | S | — | `formatObservacion` deja de asumir que el último elemento del array es el más reciente y compara `fint`; las fechas ausentes o inválidas se gestionan explícitamente; hay prueba con registros desordenados. Bajado de P1: AEMET devuelve orden cronológico, es fragilidad, no un fallo observado. |
 | 14 | A11 | ✅ Verificar y corregir la agregación de la predicción diaria | P1 | Funcional | S→M | — | **Primero un spike**: capturar payloads reales de días 0-2 y 4-7 y documentar qué periodos devuelve AEMET en cada campo. Si se confirma el fallo, la lluvia usa el máximo del día, cielo y viento dejan de depender de `arr[0]`, y se distinguen mañana/tarde/noche cuando no existe `00-24`; en cualquier caso se añaden fixtures con múltiples periodos. La estimación sube a M solo si el spike confirma el problema. |
-| 15 | A8 | Añadir provincia al dataset y resultados de municipios | P1 | Funcional | S | — | Cada municipio expone provincia, derivada de los dos primeros dígitos del código INE mediante una tabla de 52 entradas; no se regenera `municipios.json`; los nombres duplicados se desambiguan mostrando provincia y código INE; se actualizan tipos, formatos y documentación. |
-| 16 | A9 | Soportar nombres naturales y artículos invertidos de municipios | P1 | Funcional | M | 15 | Consultas como "El Campello", "A Coruña" y "La Zarza" encuentran los municipios esperados; se preserva la resolución de los nombres actuales; hay pruebas de regresión. |
-| 17 | A10 | Incorporar salidas MCP estructuradas | P1 | MCP/API | L | 15 | Las herramientas declaran `outputSchema` y devuelven `structuredContent`; conservan el texto actual por compatibilidad; fechas, códigos y valores meteorológicos quedan tipados. |
-| 18 | A12 | Añadir la herramienta `buscar_estacion` | P1 | Funcional | S | 17 | Permite buscar estaciones por nombre, provincia o idema; devuelve coordenadas y candidatos estructurados; gestiona con claridad las ambigüedades. Estimación bajada a S: `resolverEstacion` en `src/aemet/estaciones.ts` ya resuelve la mayor parte y el inventario ya trae latitud y longitud; el ticket es exponer lo que existe. |
-| 19 | A13 | Añadir observación por municipio y estación más cercana | P1 | Funcional | L | 15, 18 | Resuelve un municipio, calcula estaciones próximas y obtiene la observación más adecuada; muestra distancia y hora del dato; permite elegir otra estación. |
-| 20 | A14 | Añadir avisos meteorológicos por municipio | P1 | Funcional | M | 15, 17 | Acepta nombre o código INE; resuelve automáticamente el área CAP; identifica con claridad el alcance territorial; evita avisos irrelevantes cuando sea posible. |
+| 15 | A8 | ✅ Añadir provincia al dataset y resultados de municipios | P1 | Funcional | S | — | Cada municipio expone provincia, derivada de los dos primeros dígitos del código INE mediante una tabla de 52 entradas; no se regenera `municipios.json`; los nombres duplicados se desambiguan mostrando provincia y código INE; se actualizan tipos, formatos y documentación. |
+| 16 | A9 | ✅ Soportar nombres naturales y artículos invertidos de municipios | P1 | Funcional | M | 15 | Consultas como "El Campello", "A Coruña" y "La Zarza" encuentran los municipios esperados; se preserva la resolución de los nombres actuales; hay pruebas de regresión. |
+| 17 | A10 | ✅ Incorporar salidas MCP estructuradas | P1 | MCP/API | L | 15 | Las herramientas declaran `outputSchema` y devuelven `structuredContent`; conservan el texto actual por compatibilidad; fechas, códigos y valores meteorológicos quedan tipados. |
+| 18 | A12 | ✅ Añadir la herramienta `buscar_estacion` | P1 | Funcional | S | 17 | Permite buscar estaciones por nombre, provincia o idema; devuelve coordenadas y candidatos estructurados; gestiona con claridad las ambigüedades. Estimación bajada a S: `resolverEstacion` en `src/aemet/estaciones.ts` ya resuelve la mayor parte y el inventario ya trae latitud y longitud; el ticket es exponer lo que existe. |
+| 19 | A13 | ✅ Añadir observación por municipio y estación más cercana | P1 | Funcional | L | 15, 18 | Resuelve un municipio, calcula estaciones próximas y obtiene la observación más adecuada; muestra distancia y hora del dato; permite elegir otra estación. |
+| 20 | A14 | ✅ Añadir avisos meteorológicos por municipio | P1 | Funcional | M | 15, 17 | Acepta nombre o código INE; resuelve automáticamente el área CAP; identifica con claridad el alcance territorial; evita avisos irrelevantes cuando sea posible. |
 | 21 | A18 | Ampliar las pruebas del contrato MCP | P2 | Testing | M | 17 | Sobre la base del ticket 7, se cubren schemas de entrada y salida, invocación, errores y `structuredContent` de cada herramienta. Estimación bajada de L a M porque el handshake ya está cubierto. |
 | 22 | A6 | Evitar peticiones concurrentes duplicadas en caché | P2 | Rendimiento | S | — | `TtlCache.getOrLoad` comparte una única promesa entre cargas simultáneas de la misma clave; un error elimina la operación en vuelo; hay pruebas de concurrencia. Bajado de P1: irrelevante en el servidor stdio, donde las llamadas llegan en serie; solo aplica al uso como librería desde un backend. |
 | 23 | A27 | Añadir logging diagnóstico configurable a `stderr` | P2 | Operabilidad | M | — | Hay niveles configurables y métricas de duración, reintentos y cache hit/miss; nunca se escribe en `stdout` ni se registran API keys ni respuestas sensibles. |

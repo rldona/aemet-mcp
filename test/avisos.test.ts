@@ -1,7 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { untar } from "../src/aemet/tar.js";
 import { gzipSync } from "node:zlib";
-import { parseCapAlert, extraerAvisos } from "../src/aemet/avisos.js";
+import { parseCapAlert, extraerAvisos, avisosParaPunto } from "../src/aemet/avisos.js";
+import type { Aviso } from "../src/aemet/avisos.js";
 import { resolverArea } from "../src/aemet/areas.js";
 
 // --- helper: construye un tar mínimo válido (sin checksum; untar no lo exige) ---
@@ -189,5 +190,99 @@ describe("extraerAvisos: tope de descompresión", () => {
       maxBytesDescomprimidos: 1024 * 1024,
     });
     expect(res.avisos).toHaveLength(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Zonas y filtrado por punto (ticket 20)
+// ---------------------------------------------------------------------------
+
+/** CAP con varias <area>, cada una con su polígono y su código de zona. */
+function capMultizona(): string {
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<alert xmlns="urn:oasis:names:tc:emergency:cap:1.2">
+  <sent>2026-09-07T09:00:00-00:00</sent>
+  <status>Actual</status>
+  <info>
+    <language>es-ES</language>
+    <event>Aviso</event>
+    <onset>2026-09-07T13:00:00+02:00</onset>
+    <expires>2099-01-01T00:00:00+02:00</expires>
+    <description>Calor.</description>
+    <parameter><valueName>AEMET-Meteoalerta fenomeno</valueName><value>AT;Temperaturas máximas</value></parameter>
+    <parameter><valueName>AEMET-Meteoalerta nivel</valueName><value>amarillo</value></parameter>
+    <area>
+      <areaDesc>Zona norte</areaDesc>
+      <polygon>40.0,-4.0 41.0,-4.0 41.0,-3.0 40.0,-3.0 40.0,-4.0</polygon>
+      <geocode><valueName>AEMET-Meteoalerta zona</valueName><value>611801</value></geocode>
+    </area>
+    <area>
+      <areaDesc>Zona sur</areaDesc>
+      <polygon>37.0,-4.0 38.0,-4.0 38.0,-3.0 37.0,-3.0 37.0,-4.0</polygon>
+      <geocode><valueName>AEMET-Meteoalerta zona</valueName><value>611802</value></geocode>
+    </area>
+  </info>
+</alert>`;
+}
+
+describe("parseCapAlert: zonas", () => {
+  it("recoge TODAS las zonas del aviso, no solo la primera", () => {
+    // Un mismo CAP puede cubrir decenas de zonas; quedarse con la primera daba
+    // una idea falsa del alcance territorial.
+    const aviso = parseCapAlert(capMultizona(), Date.parse("2026-09-07T12:00:00Z"))!;
+    expect(aviso.zonas.map((z) => z.descripcion)).toEqual(["Zona norte", "Zona sur"]);
+    expect(aviso.zonas.map((z) => z.codigo)).toEqual(["611801", "611802"]);
+    expect(aviso.zona).toBe("Zona norte"); // compatibilidad del texto de siempre
+  });
+
+  it("parsea los polígonos de cada zona", () => {
+    const aviso = parseCapAlert(capMultizona(), Date.parse("2026-09-07T12:00:00Z"))!;
+    expect(aviso.zonas[0]!.poligonos).toHaveLength(1);
+    expect(aviso.zonas[0]!.poligonos[0]!.length).toBeGreaterThanOrEqual(4);
+  });
+
+  it("un aviso sin bloque area no rompe el parseo", () => {
+    const aviso = parseCapAlert(
+      capXml({ nivel: "amarillo", expires: "2099-01-01T00:00:00+02:00" }),
+      Date.now(),
+    );
+    expect(aviso).not.toBeNull();
+    expect(Array.isArray(aviso!.zonas)).toBe(true);
+  });
+});
+
+describe("avisosParaPunto", () => {
+  const aviso = () => parseCapAlert(capMultizona(), Date.parse("2026-09-07T12:00:00Z"))!;
+
+  it("incluye el aviso si el punto cae en alguna de sus zonas", () => {
+    const { dentro } = avisosParaPunto([aviso()], { latitud: 37.5, longitud: -3.5 });
+    expect(dentro).toHaveLength(1);
+    // Se conservan solo las zonas que realmente cubren el punto.
+    expect(dentro[0]!.zonas.map((z) => z.descripcion)).toEqual(["Zona sur"]);
+    expect(dentro[0]!.zona).toBe("Zona sur");
+  });
+
+  it("descarta el aviso si el punto queda fuera de todas sus zonas", () => {
+    const { dentro, sinGeometria } = avisosParaPunto([aviso()], {
+      latitud: 43.0,
+      longitud: -8.0,
+    });
+    expect(dentro).toEqual([]);
+    expect(sinGeometria).toEqual([]);
+  });
+
+  it("no descarta un aviso que no se puede evaluar por falta de geometría", () => {
+    // Ocultar en silencio un aviso porque no sabemos dibujarlo es peor que
+    // mostrarlo de más: se devuelve aparte para que quien llame lo diga.
+    const sinPoligono: Aviso = {
+      ...aviso(),
+      zonas: [{ descripcion: "Zona sin contorno", poligonos: [] }],
+    };
+    const { dentro, sinGeometria } = avisosParaPunto([sinPoligono], {
+      latitud: 43.0,
+      longitud: -8.0,
+    });
+    expect(dentro).toEqual([]);
+    expect(sinGeometria).toHaveLength(1);
   });
 });

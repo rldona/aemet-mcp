@@ -26,16 +26,26 @@ export { TtlCache } from "./aemet/cache.js";
 export {
   buscarMunicipios,
   esCodigoINE,
+  etiquetaMunicipio,
   municipioPorCodigo,
+  nombreNatural,
   normalize,
   resolverMunicipio,
   totalMunicipios,
+  variantesNombre,
 } from "./aemet/municipios.js";
+
+export {
+  PROVINCIAS,
+  codigoProvincia,
+  provinciaPorCodigo,
+} from "./aemet/provincias.js";
 
 export { AREAS, areaParaMunicipio, resolverArea } from "./aemet/areas.js";
 
 export {
   DEFAULT_MAX_DESCOMPRIMIDO,
+  avisosParaPunto,
   claveAviso,
   extraerAvisos,
   obtenerAvisos,
@@ -44,7 +54,15 @@ export {
   type ExtraerAvisosOptions,
   type NivelAviso,
   type ResultadoAvisos,
+  type ZonaAviso,
 } from "./aemet/avisos.js";
+
+export {
+  coordenadasMunicipio,
+  parsePoligono,
+  puntoEnPoligono,
+  type Punto,
+} from "./aemet/geo.js";
 
 export {
   DEFAULT_MAX_ENTRIES,
@@ -56,18 +74,27 @@ export {
 } from "./aemet/tar.js";
 
 export {
+  buscarEstaciones,
+  distanciaKm,
+  estacionesCercanas,
+  inventarioEstaciones,
   pareceIdema,
+  parseCoordenadaDMS,
   resolverEstacion,
   type EstacionResuelta,
 } from "./aemet/estaciones.js";
 
 export {
   formatAvisos,
+  formatAvisosMunicipio,
   formatDiaria,
+  formatEstaciones,
   formatHoraria,
   formatMunicipios,
   formatObservacion,
+  formatObservacionMunicipio,
   observacionMasReciente,
+  pickPeriodo,
   probPrecipitacionDia,
 } from "./aemet/format.js";
 

@@ -156,6 +156,10 @@ Detalles:
 - **tsup** empaqueta `src/index.ts` a un único ESM (`dist/index.js`) con shebang,
   bundleando el JSON de municipios. Target Node 20. El paquete es ESM-only:
   no se publica build CJS.
+- **Geografía**: el dataset del INE solo trae código y nombre. La provincia se
+  deriva de los dos primeros dígitos del código (tabla de 52 entradas en
+  `provincias.ts`) y las coordenadas se piden al maestro de municipios de AEMET,
+  cacheado 24 h. Así no hay un segundo dataset que mantener.
 - `bin` apunta a `dist/index.js` → `npx @rldona/aemet-mcp` arranca el servidor.
 - **TypeScript strict** (`noUncheckedIndexedAccess`, `verbatimModuleSyntax`, …).
 

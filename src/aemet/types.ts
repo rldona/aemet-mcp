@@ -18,7 +18,12 @@ export interface AemetEnvelope {
 export interface Municipio {
   /** Código INE de 5 dígitos (CPRO + CMUN). */
   codigo: string;
+  /** Nombre tal cual lo publica el INE, con el artículo invertido: "Campello, el". */
   nombre: string;
+  /** Mismo nombre en forma natural, para mostrar al usuario: "el Campello". */
+  nombreNatural: string;
+  /** Provincia, derivada de los dos primeros dígitos del código INE. */
+  provincia: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -131,6 +136,9 @@ export interface EstacionInventario {
   indicativo: string;
   nombre: string;
   provincia?: string;
+  /** DMS empaquetado con hemisferio: "402441N". Ver `parseCoordenadaDMS`. */
   latitud?: string;
   longitud?: string;
+  /** Metros sobre el nivel del mar, como cadena. */
+  altitud?: string;
 }
