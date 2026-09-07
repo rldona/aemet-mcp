@@ -18,6 +18,15 @@ describe("parseCoordenadaDMS", () => {
     expect(parseCoordenadaDMS("015000O")).toBeCloseTo(-1.8333, 4);
   });
 
+  it("acepta los 60 segundos que publica AEMET, que son un acarreo", () => {
+    // Valores reales del inventario: RONDA INSTITUTO (6032X), MARBELLA (6083X)
+    // y MOLLERUSSA (9729X) traen 60 segundos, que es 0 segundos del minuto
+    // siguiente. Rechazarlos perdía tres estaciones con coordenadas correctas.
+    expect(parseCoordenadaDMS("364460N")).toBeCloseTo(36.75, 6); // 36º44'60" = 36º45'
+    expect(parseCoordenadaDMS("362860N")).toBeCloseTo(36.4833, 4);
+    expect(parseCoordenadaDMS("005160E")).toBeCloseTo(0.8667, 4);
+  });
+
   it("rechaza lo que no sabe leer en vez de inventar un número", () => {
     expect(parseCoordenadaDMS(undefined)).toBeUndefined();
     expect(parseCoordenadaDMS("")).toBeUndefined();
@@ -25,6 +34,7 @@ describe("parseCoordenadaDMS", () => {
     expect(parseCoordenadaDMS("1234N")).toBeUndefined(); // muy corta
     expect(parseCoordenadaDMS("407841N")).toBeUndefined(); // 78 minutos
     expect(parseCoordenadaDMS("402499N")).toBeUndefined(); // 99 segundos
+    expect(parseCoordenadaDMS("406199N")).toBeUndefined(); // 61 minutos: basura
   });
 });
 
