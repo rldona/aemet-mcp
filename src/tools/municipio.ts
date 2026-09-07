@@ -11,10 +11,14 @@ export function registerBuscarMunicipio(server: McpServer): void {
     {
       title: "Buscar municipio",
       description:
-        "Busca municipios españoles por nombre y devuelve su código INE de 5 dígitos y su provincia. " +
-        "Úsala PRIMERO cuando el usuario dé un nombre de pueblo/ciudad, porque las " +
-        "predicciones necesitan el código INE. El match tolera acentos, mayúsculas y " +
-        "artículos: 'El Campello', 'Campello' y 'Campello, el' encuentran lo mismo.",
+        "Busca municipios españoles por nombre y devuelve su código INE de 5 dígitos " +
+        "y su provincia. El match tolera acentos, mayúsculas y artículos: " +
+        "'El Campello', 'Campello' y 'Campello, el' encuentran lo mismo.\n" +
+        "NO hace falta llamarla antes de las demás: prediccion_diaria, " +
+        "prediccion_horaria, observacion_municipio y avisos_municipio aceptan el " +
+        "nombre directamente y lo resuelven solas. Úsala cuando el usuario pida " +
+        "explícitamente el código INE, o cuando otra herramienta responda que el " +
+        "nombre es ambiguo y necesites ver las opciones con su provincia.",
       inputSchema: {
         nombre: z
           .string()

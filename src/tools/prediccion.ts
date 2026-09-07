@@ -33,7 +33,11 @@ export function registerPrediccionTools(
       title: "Predicción diaria",
       description:
         "Predicción meteorológica diaria (hasta 7 días) de un municipio español: " +
-        "temperatura máx/mín, estado del cielo, probabilidad de precipitación y viento.",
+        "temperatura máx/mín, estado del cielo, probabilidad de precipitación y viento. " +
+        "Acepta el nombre del municipio directamente ('Granada', 'El Campello') o su " +
+        "código INE; si el nombre resulta ambiguo devuelve las opciones con su " +
+        "provincia y su código para que reintentes con el correcto. Para el tiempo " +
+        "que hace AHORA usa observacion_municipio, no esta.",
       inputSchema: {
         municipio: municipioArg,
         dias: z
@@ -69,7 +73,10 @@ export function registerPrediccionTools(
       title: "Predicción horaria",
       description:
         "Predicción meteorológica hora a hora de un municipio español para el día en " +
-        "curso y los siguientes: temperatura, cielo, precipitación y viento por hora.",
+        "curso y los siguientes: temperatura, cielo, precipitación y viento por hora. " +
+        "Acepta el nombre del municipio o su código INE, igual que prediccion_diaria. " +
+        "Úsala cuando importe el detalle por horas (a qué hora llueve, cuándo refresca); " +
+        "para varios días seguidos es mejor prediccion_diaria.",
       inputSchema: {
         municipio: municipioArg,
         dias: z

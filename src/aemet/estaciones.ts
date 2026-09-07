@@ -44,7 +44,10 @@ export function parseCoordenadaDMS(raw: string | undefined): number | undefined 
   if (!Number.isFinite(grados) || !Number.isFinite(minutos) || !Number.isFinite(segundos)) {
     return undefined;
   }
-  if (minutos >= 60 || segundos >= 60) return undefined;
+  // AEMET publica valores con 60 segundos ("364460N" son 36º44'60\", es decir
+  // 36º45'00\"): un acarreo sin normalizar, no un dato corrupto. La suma de
+  // abajo lo resuelve sola, así que se aceptan; por encima de 60 sí es basura.
+  if (minutos > 60 || segundos > 60) return undefined;
 
   const valor = grados + minutos / 60 + segundos / 3600;
   const hemisferio = m[2]!.toUpperCase();
