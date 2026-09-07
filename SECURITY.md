@@ -47,6 +47,23 @@ y aún no hay versión parcheada, se documenta en el PR —enlace al advisory, p
 no aplica y fecha de revisión— y, si hace falta desbloquear el merge, se usa un
 `overrides` temporal apuntando a la última versión disponible.
 
+## Cadena de publicación
+
+El paquete se publica con **Trusted Publishing (OIDC)** desde GitHub Actions: sin
+`NPM_TOKEN`, con provenance. Alrededor de eso:
+
+- **Las GitHub Actions van fijadas por SHA de commit**, no por tag. Un tag como
+  `v4` es móvil: quien controle el repositorio de la acción puede reapuntarlo a
+  otro commit, y ese código correría en un job que tiene permiso de publicación.
+  El comentario `# v4` que acompaña a cada SHA es informativo; el SHA manda.
+- **La versión de npm del workflow de publicación está fijada** en lugar de usar
+  `@latest`, por el mismo motivo: ese job publica, y `@latest` arrastraría
+  cualquier versión recién salida sin revisión.
+- **CI declara `permissions: contents: read`**, para no heredar los permisos por
+  defecto del repositorio.
+- Dependabot revisa las Actions una vez al mes y actualiza SHA y comentario a la
+  vez. La versión de npm no la cubre: se sube a mano al preparar cada release.
+
 ## Reportar una vulnerabilidad
 
 Si encuentras un problema de seguridad:

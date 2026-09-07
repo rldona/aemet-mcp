@@ -66,6 +66,7 @@ interface AemetClientOptions {
   maxBytes?: number;           // tope por respuesta. Def: 32 MiB
   allowedHosts?: readonly string[]; // hosts a los que se envía la key. Def: AEMET_HOSTS
   random?: () => number;       // inyectable (tests): jitter. Def: Math.random
+  logger?: Logger;             // diagnóstico. Def: el del proceso (stderr)
 }
 ```
 
@@ -82,6 +83,14 @@ error es `TIMEOUT`.
 un 429 se respeta la cabecera `Retry-After` (segundos o fecha HTTP), acotada a 30 s;
 si no la hay, backoff exponencial con jitter (mitad fija, mitad aleatoria). Los
 errores permanentes (`UNSAFE_URL`, `TOO_LARGE`, 401, 404) no se reintentan.
+
+**Caché.** `TtlCache` deduplica cargas en vuelo: N llamadas simultáneas a la misma
+clave comparten una promesa en lugar de lanzar N peticiones. Importa poco en el
+servidor MCP, donde las llamadas llegan en serie, y mucho al usar el núcleo como
+librería desde un backend con concurrencia. Los errores no se cachean.
+
+**Logging.** `AEMET_MCP_LOG` (`silent`/`error`/`warn`/`info`/`debug`, por defecto
+`warn`) o un `logger` propio. Todo va a `stderr` y nunca incluye credenciales.
 
 **Hosts autorizados.** El segundo salto va a la URL que AEMET devuelve en `datos`.
 Antes de reenviar ahí la cabecera `api_key` se valida que sea HTTPS y de un host de

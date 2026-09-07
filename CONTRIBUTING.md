@@ -25,6 +25,9 @@ npm install
 | `npm run test:watch` | Tests en modo watch. |
 | `npm run typecheck` | Comprobación de tipos (TS strict). |
 | `npm run build` | Empaqueta a `dist/` con tsup. |
+| `npm run audit:prod` | Auditoría de dependencias de producción (lo mismo que CI). |
+| `npm run dataset:generate` | Regenera `municipios.json` desde el último diccionario del INE. |
+| `npm run dataset:check` | Valida el dataset; con un JSON anterior como argumento, muestra el diff. |
 | `npm run test:pack` | Empaqueta con `npm pack`, instala el tarball en un proyecto limpio y valida resolución ESM/CJS, tipos, binario y arranque MCP. |
 | `npm run inspector` | Abre el MCP Inspector contra el servidor (requiere key). |
 

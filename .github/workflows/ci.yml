@@ -6,6 +6,11 @@ on:
   pull_request:
     branches: [main]
 
+# Mínimo imprescindible: CI solo lee el repo. Sin esto hereda los permisos por
+# defecto del repositorio, que pueden incluir escritura.
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -18,10 +23,10 @@ jobs:
         node-version: ['20.19', 22, 24]
     name: test (Node ${{ matrix.node-version }})
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Setup Node ${{ matrix.node-version }}
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: ${{ matrix.node-version }}
           cache: npm
@@ -52,10 +57,10 @@ jobs:
         node-version: ['20.19', 22, 24]
     name: package (Node ${{ matrix.node-version }})
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Setup Node ${{ matrix.node-version }}
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: ${{ matrix.node-version }}
           cache: npm
@@ -72,9 +77,9 @@ jobs:
     runs-on: ubuntu-latest
     name: audit (dependencias de producción)
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
           cache: npm

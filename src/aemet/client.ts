@@ -1,6 +1,7 @@
 import { AemetError, describeEstado } from "./errors.js";
 import { TtlCache } from "./cache.js";
 import type { AemetEnvelope } from "./types.js";
+import { log as logPorDefecto, urlSegura, type Logger } from "./log.js";
 
 const BASE_URL = "https://opendata.aemet.es/opendata/api";
 
@@ -48,6 +49,8 @@ export interface AemetClientOptions {
   allowedHosts?: readonly string[];
   /** Inyectable para tests: aleatoriedad del jitter. Por defecto Math.random. */
   random?: () => number;
+  /** Logger de diagnóstico. Por defecto el del proceso (stderr). */
+  logger?: Logger;
 }
 
 const defaultSleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
@@ -203,7 +206,8 @@ export class AemetClient {
   private readonly maxBytes: number;
   private readonly allowedHosts: readonly string[];
   private readonly random: () => number;
-  private readonly cache = new TtlCache<unknown>(TTL.prediccion);
+  private readonly log: Logger;
+  private readonly cache: TtlCache<unknown>;
 
   constructor(opts: AemetClientOptions) {
     if (!opts.apiKey) {
@@ -221,6 +225,10 @@ export class AemetClient {
     this.maxBytes = opts.maxBytes ?? DEFAULT_MAX_BYTES;
     this.allowedHosts = opts.allowedHosts ?? AEMET_HOSTS;
     this.random = opts.random ?? Math.random;
+    this.log = opts.logger ?? logPorDefecto;
+    this.cache = new TtlCache<unknown>(TTL.prediccion, Date.now, (evento, key) => {
+      this.log.debug("cache", { evento, key });
+    });
   }
 
   /**
@@ -379,11 +387,18 @@ export class AemetClient {
     presupuesto: Presupuesto,
   ): Promise<RespuestaCruda> {
     for (;;) {
+      const inicio = Date.now();
       try {
         const res = await this.fetchImpl(url, {
           ...init,
           redirect: "manual",
           signal: AbortSignal.timeout(this.timeoutMs),
+        });
+        this.log.debug("http", {
+          url: urlSegura(url),
+          status: res.status,
+          ms: Date.now() - inicio,
+          intento: presupuesto.usados,
         });
 
         if (res.status >= 300 && res.status < 400) {
@@ -404,6 +419,11 @@ export class AemetClient {
             headers: res.headers,
           };
           if (this.consumir(presupuesto)) {
+            this.log.warn("reintento por 5xx", {
+              url: urlSegura(url),
+              status: res.status,
+              intento: presupuesto.usados,
+            });
             await this.esperar(presupuesto, cruda);
             continue;
           }
@@ -426,9 +446,18 @@ export class AemetClient {
 
         const porTimeout = esTimeout(cause);
         if (this.consumir(presupuesto)) {
+          this.log.warn(porTimeout ? "reintento por timeout" : "reintento por red", {
+            url: urlSegura(url),
+            ms: Date.now() - inicio,
+            intento: presupuesto.usados,
+          });
           await this.esperar(presupuesto);
           continue;
         }
+        this.log.error(porTimeout ? "timeout definitivo" : "fallo de red definitivo", {
+          url: urlSegura(url),
+          intentos: presupuesto.usados + 1,
+        });
         const intentos = presupuesto.usados + 1;
         if (porTimeout) {
           throw new AemetError(
@@ -469,6 +498,7 @@ export class AemetClient {
 
       if (estado === 429) {
         if (this.consumir(presupuesto)) {
+          this.log.warn("reintento por 429", { path, intento: presupuesto.usados });
           await this.esperar(presupuesto, res);
           continue;
         }
