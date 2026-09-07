@@ -100,14 +100,86 @@ describe("servidor MCP (stdio)", () => {
     });
   });
 
-  it("una tool que necesita AEMET falla con MISSING_API_KEY, no revienta", async () => {
+  it("cada tool declara como requeridos los campos que de verdad lo son", async () => {
+    const { tools } = await client.listTools();
+    const requeridos = Object.fromEntries(
+      tools.map((t) => [t.name, (t.inputSchema as { required?: string[] }).required ?? []]),
+    );
+
+    expect(requeridos["buscar_municipio"]).toEqual(["nombre"]);
+    expect(requeridos["buscar_estacion"]).toEqual(["consulta"]);
+    expect(requeridos["prediccion_diaria"]).toEqual(["municipio"]);
+    expect(requeridos["prediccion_horaria"]).toEqual(["municipio"]);
+    expect(requeridos["observacion_municipio"]).toEqual(["municipio"]);
+    expect(requeridos["avisos"]).toEqual(["area"]);
+    expect(requeridos["avisos_municipio"]).toEqual(["municipio"]);
+    // observacion_estacion funciona sin argumentos (usa Madrid-Retiro).
+    expect(requeridos["observacion_estacion"]).toEqual([]);
+  });
+
+  it("los outputSchema declaran las propiedades que promete cada tool", async () => {
+    const { tools } = await client.listTools();
+    const props = (nombre: string) =>
+      Object.keys(
+        (tools.find((t) => t.name === nombre)!.outputSchema as {
+          properties?: Record<string, unknown>;
+        }).properties ?? {},
+      ).sort();
+
+    expect(props("buscar_municipio")).toEqual(["consulta", "municipios", "total"]);
+    expect(props("prediccion_diaria")).toEqual(["dias", "elaborado", "municipio"]);
+    expect(props("avisos_municipio")).toContain("alcance");
+    expect(props("observacion_municipio")).toContain("candidatas");
+  });
+
+  it("un argumento del tipo equivocado se rechaza antes de llamar a AEMET", async () => {
     const res = await client.callTool({
-      name: "observacion_estacion",
-      arguments: {},
+      name: "prediccion_diaria",
+      arguments: { municipio: "Madrid", dias: "muchos" },
     });
     expect(res.isError).toBe(true);
-    expect(JSON.stringify(res.content)).toContain("MISSING_API_KEY");
   });
+
+  it("un nombre ambiguo devuelve las opciones con provincia, sin necesitar API key", async () => {
+    // La resolución del municipio ocurre antes de tocar el cliente de AEMET,
+    // así que este camino se puede probar entero sin credenciales.
+    const res = await client.callTool({
+      name: "prediccion_diaria",
+      arguments: { municipio: "La Zarza" },
+    });
+    expect(res.isError).toBe(true);
+    const texto = JSON.stringify(res.content);
+    expect(texto).toContain("ambiguo");
+    expect(texto).toContain("Badajoz");
+    expect(texto).toContain("Valladolid");
+  });
+
+  it("un municipio inexistente da un mensaje útil, no un fallo opaco", async () => {
+    const res = await client.callTool({
+      name: "prediccion_diaria",
+      arguments: { municipio: "99999" },
+    });
+    expect(res.isError).toBe(true);
+    expect(JSON.stringify(res.content)).toContain("buscar_municipio");
+  });
+
+  const NECESITAN_AEMET = [
+    ["buscar_estacion", { consulta: "Retiro" }],
+    ["observacion_estacion", {}],
+    ["observacion_municipio", { municipio: "Madrid" }],
+    ["prediccion_diaria", { municipio: "Madrid" }],
+    ["prediccion_horaria", { municipio: "Madrid" }],
+    ["avisos", { area: "Andalucía" }],
+    ["avisos_municipio", { municipio: "Madrid" }],
+  ] as const;
+
+  for (const [nombre, args] of NECESITAN_AEMET) {
+    it(`${nombre} sin API key falla con MISSING_API_KEY, no revienta`, async () => {
+      const res = await client.callTool({ name: nombre, arguments: args });
+      expect(res.isError).toBe(true);
+      expect(JSON.stringify(res.content)).toContain("MISSING_API_KEY");
+    });
+  }
 
   it("una tool sin dependencia de AEMET responde con la key ausente", async () => {
     const res = await client.callTool({
@@ -117,4 +189,31 @@ describe("servidor MCP (stdio)", () => {
     expect(res.isError).toBeFalsy();
     expect(JSON.stringify(res.content)).toContain("Madrid");
   });
+});
+
+describe("el logging no contamina el canal MCP", () => {
+  it("con AEMET_MCP_LOG=debug el handshake sigue funcionando", async () => {
+    // stdout es el transporte JSON-RPC: una sola línea de log ahí rompe la
+    // sesión. Este test la rompería si el logger dejara de ir a stderr.
+    const transport = new StdioClientTransport({
+      command: process.execPath,
+      args: [BIN],
+      env: { PATH: process.env.PATH ?? "", AEMET_MCP_LOG: "debug" },
+    });
+    const client = new Client({ name: "aemet-mcp-test-log", version: "0" });
+    await client.connect(transport);
+
+    try {
+      const { tools } = await client.listTools();
+      expect(tools).toHaveLength(HERRAMIENTAS.length);
+
+      const res = await client.callTool({
+        name: "buscar_municipio",
+        arguments: { nombre: "Madrid" },
+      });
+      expect(res.isError).toBeFalsy();
+    } finally {
+      await client.close();
+    }
+  }, 30_000);
 });

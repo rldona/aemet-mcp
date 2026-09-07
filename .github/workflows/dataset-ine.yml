@@ -1,0 +1,80 @@
+name: Dataset INE
+
+# Vigila el diccionario de municipios del INE, que es la fuente de los códigos
+# que usa AEMET. El INE publica uno nuevo cada año con altas, bajas, fusiones y
+# renombres; el dataset de este repo llegó a estar dos años desfasado sin que
+# nadie se enterara, porque nada lo miraba.
+#
+# Este workflow NO commitea ni publica nada: regenera en el runner, valida y
+# deja el diff en el resumen del job. Aplicarlo es una decisión manual.
+#
+# El job FALLA a propósito cuando detecta cambios. Es la única señal que llega:
+# una ejecución programada que termina en verde no notifica a nadie, y un aviso
+# en el resumen de un cron mensual no lo lee ningún ser humano. Un fallo aquí no
+# significa que algo esté roto, significa "hay un diccionario nuevo que revisar".
+
+on:
+  schedule:
+    - cron: "0 6 1 * *" # el día 1 de cada mes
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  comprobar:
+    runs-on: ubuntu-latest
+    name: Comprobar el diccionario del INE
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Guardar el dataset actual
+        run: cp src/data/municipios.json /tmp/municipios-anterior.json
+
+      - name: Regenerar desde el INE
+        run: npm run dataset:generate
+
+      - name: Validar y comparar
+        id: comparar
+        run: |
+          # La validación (duplicados, códigos, provincias, saltos de tamaño)
+          # falla por su cuenta si algo no cuadra.
+          npm run dataset:check -- /tmp/municipios-anterior.json | tee /tmp/resumen.txt
+
+      - name: Publicar el diff en el resumen del job
+        if: always()
+        run: |
+          {
+            echo "# Diccionario de municipios del INE"
+            echo
+            if git diff --quiet -- src/data/municipios.json; then
+              echo "El dataset está al día: no hay cambios."
+            else
+              echo "**Hay cambios respecto al dataset del repositorio.**"
+              echo
+              echo '```'
+              sed -n '/## Cambios en el dataset/,$p' /tmp/resumen.txt
+              echo '```'
+              echo
+              echo "Para aplicarlo, en local:"
+              echo
+              echo '```bash'
+              echo "npm run dataset:generate && npm run dataset:check && npm test"
+              echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Fallar si hay cambios pendientes de revisar
+        run: |
+          if ! git diff --quiet -- src/data/municipios.json; then
+            echo "::error::El INE ha publicado cambios en el diccionario de municipios. Revisa el resumen del job y aplícalos a mano."
+            exit 1
+          fi
+          echo "Sin cambios."

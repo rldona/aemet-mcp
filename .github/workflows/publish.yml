@@ -24,16 +24,19 @@ jobs:
       contents: read
       id-token: write # imprescindible para OIDC + provenance
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
 
       # Trusted Publishing (OIDC) requiere npm >= 11.5.1; el que trae Node aún es
-      # 10.x, así que lo actualizamos.
-      - name: Actualiza npm a una versión con soporte OIDC
-        run: npm install -g npm@latest
+      # 10.x, así que lo actualizamos. Versión FIJA, no `@latest`: este job tiene
+      # permiso de publicación vía OIDC, y `@latest` metería automáticamente
+      # cualquier versión de npm recién publicada, comprometida incluida.
+      # Dependabot no cubre esto, así que se sube a mano al revisar la release.
+      - name: Instala la versión de npm con soporte OIDC
+        run: npm install -g npm@12.0.2
 
       - run: npm ci
 

@@ -9,6 +9,72 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 _Nada por ahora._
 
+## [0.4.1] - 2026-09-07
+
+Calidad interna y cadena de suministro (tickets 21-26 de
+`docs/backlog-mejoras.md`). Sin cambios en el contrato MCP.
+
+### Añadido
+
+- **Deduplicación de cargas en caché.** N llamadas simultáneas a la misma clave
+  comparten una promesa en lugar de lanzar N peticiones. En el servidor MCP por
+  stdio da igual —las llamadas llegan en serie—, pero el mismo núcleo se usa como
+  librería desde backends con concurrencia real, donde eso multiplicaba el
+  consumo de cuota de AEMET. Los errores se comparten pero no se cachean, y la
+  carga en vuelo se retira para que el siguiente intento vuelva a probar.
+  `TtlCache` gana además `invalidate`, `purge` y `enVuelo`.
+
+- **Logging diagnóstico** configurable con `AEMET_MCP_LOG`
+  (`silent`/`error`/`warn`/`info`/`debug`, por defecto `warn`). Registra duración
+  de cada petición, reintentos y aciertos de caché. Todo va a `stderr`, nunca a
+  `stdout`, que es el canal del protocolo; hay un test que arranca el servidor con
+  `debug` y comprueba que el handshake sigue funcionando. Las credenciales no se
+  registran: las cabeceras no se tocan y a las URL se les borra la query.
+
+- **Pruebas del contrato MCP**: campos requeridos de cada entrada, propiedades de
+  cada `outputSchema`, argumentos con tipo equivocado, nombres ambiguos y códigos
+  inexistentes, y que las 7 herramientas que necesitan AEMET fallen con
+  `MISSING_API_KEY` en lugar de reventar.
+
+- **Dependabot** para npm y GitHub Actions, con actualizaciones agrupadas:
+  en un proyecto de un solo mantenedor, diez PR sueltos se ignoran y uno agrupado
+  se revisa.
+
+- **`npm run dataset:check`**: valida el dataset de municipios (duplicados,
+  códigos, provincias, cantidad) y, con el anterior como argumento, resume altas,
+  bajas y renombres. Falla si los cambios superan el 2%, que a esa escala
+  significa parseo roto y no reorganización territorial.
+
+- **Workflow `Dataset INE`** (mensual y a demanda): regenera desde el INE, valida
+  y deja el diff en el resumen del job. No commitea ni publica nada. Falla a
+  propósito cuando hay cambios, porque un cron en verde no notifica a nadie.
+
+### Seguridad
+
+- **GitHub Actions fijadas por SHA de commit** en lugar de por tag. Un tag como
+  `v4` es móvil: quien controle el repositorio de la acción puede reapuntarlo, y
+  ese código corre en un job con permiso de publicación vía OIDC.
+- **La versión de npm del workflow de publicación queda fijada** en lugar de
+  `@latest`, por el mismo motivo.
+- CI declara `permissions: contents: read` para no heredar los permisos por
+  defecto del repositorio.
+- Todo documentado en `SECURITY.md`, incluida la vía de excepción.
+
+### Corregido
+
+- **El generador del dataset apuntaba a una URL fija del INE** (`diccionario24`),
+  así que nunca habría visto un año nuevo: el dataset estaba dos años desfasado
+  sin que nada lo detectara. Ahora prueba desde el año en curso hacia atrás y usa
+  el primero que exista (`INE_URL` lo fuerza si la ruta cambia).
+
+### Datos
+
+- **Dataset de municipios actualizado al diccionario del INE de 2026.** 8.132
+  municipios, sin altas ni bajas; 9 renombres, casi todos por incorporar la forma
+  bilingüe: `Castelló de la Plana` → `Castelló de la Plana/Castellón de la Plana`,
+  `Moncada` → `Montcada/Moncada`, `Goñi` → `Val de Goñi/Goñerri`. Junto con el
+  indexado de variantes de la 0.4.0, ahora resuelven las dos formas de cada uno.
+
 ## [0.4.0] - 2026-09-07
 
 Geografía y salidas estructuradas (tickets 15-20 de `docs/backlog-mejoras.md`).

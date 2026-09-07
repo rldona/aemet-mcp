@@ -46,6 +46,14 @@ CommonJS. Aun así se puede consumir desde CommonJS con `require()`, porque Node
 2. Introduce tu email; recibirás la key por correo (es un token largo tipo JWT).
 3. Guárdala; se pasa al servidor por la variable de entorno `AEMET_API_KEY`.
 
+### Diagnóstico
+
+`AEMET_MCP_LOG` controla el detalle de los mensajes, que van **siempre a
+`stderr`** (`stdout` es el canal del protocolo MCP): `silent`, `error`, `warn`
+(por defecto), `info` o `debug`. En `debug` se registran duración de cada
+petición, reintentos y aciertos de caché. Nunca se registran credenciales: las
+cabeceras no se tocan y a las URL se les borra la query.
+
 ## Uso con Claude Desktop
 
 Edita `claude_desktop_config.json`

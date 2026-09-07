@@ -24,6 +24,16 @@ export { AemetError, describeEstado, type AemetErrorCode } from "./aemet/errors.
 export { TtlCache } from "./aemet/cache.js";
 
 export {
+  crearLogger,
+  log,
+  nivelDesdeEntorno,
+  urlSegura,
+  type Campos,
+  type Logger,
+  type NivelLog,
+} from "./aemet/log.js";
+
+export {
   buscarMunicipios,
   esCodigoINE,
   etiquetaMunicipio,
