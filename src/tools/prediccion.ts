@@ -86,7 +86,7 @@ export function registerPrediccionTools(
           hasta,
         });
         return structured(
-          formatDiaria(pred, seleccion),
+          formatDiaria(m, pred, seleccion),
           aSalidaPrediccionDiaria(m, pred, seleccion),
         );
       }),
@@ -131,7 +131,7 @@ export function registerPrediccionTools(
           hasta,
         });
         return structured(
-          formatHoraria(pred, seleccion),
+          formatHoraria(m, pred, seleccion),
           aSalidaPrediccionHoraria(m, pred, seleccion),
         );
       }),
