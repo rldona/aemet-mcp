@@ -1,0 +1,40 @@
+# Actualizaciones automáticas de dependencias.
+#
+# Se agrupan a propósito: en un proyecto con un solo mantenedor, diez PR sueltos
+# a la semana se ignoran, y un PR agrupado se revisa. Las de producción van
+# aparte de las de desarrollo porque solo las primeras viajan en el paquete
+# publicado y son las que puede bloquear el job `audit` de CI.
+version: 2
+
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      produccion:
+        dependency-type: production
+        update-types: [minor, patch]
+      desarrollo:
+        dependency-type: development
+        update-types: [minor, patch]
+    # Los majors llegan como PR individuales: suelen traer cambios incompatibles
+    # y conviene mirarlos de uno en uno.
+    commit-message:
+      prefix: "chore(deps)"
+      prefix-development: "chore(deps-dev)"
+
+  # Las Actions van fijadas por SHA (ver SECURITY.md), así que sin esto se
+  # quedarían congeladas para siempre: Dependabot actualiza el SHA y el
+  # comentario de versión a la vez.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    groups:
+      actions:
+        patterns: ["*"]
+    commit-message:
+      prefix: "chore(ci)"

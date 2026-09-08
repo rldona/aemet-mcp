@@ -18,7 +18,17 @@ export interface AemetEnvelope {
 export interface Municipio {
   /** Código INE de 5 dígitos (CPRO + CMUN). */
   codigo: string;
+  /** Nombre tal cual lo publica el INE, con el artículo invertido: "Campello, el". */
   nombre: string;
+  /** Mismo nombre en forma natural, para mostrar al usuario: "el Campello". */
+  nombreNatural: string;
+  /** Provincia, derivada de los dos primeros dígitos del código INE. */
+  provincia: string;
+  /**
+   * Isla, para Canarias y Baleares. `undefined` en la península, Ceuta y
+   * Melilla. No sale del INE (que no tiene el concepto): ver `islas.ts`.
+   */
+  isla?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -74,7 +84,12 @@ export interface EstadoCielo {
 }
 
 export interface RangoHorario {
-  value?: string;
+  /**
+   * AEMET mezcla tipos aquí: la probabilidad de precipitación de los días 4-6
+   * llega como número (`0`) y la de los días 0-3 como cadena. Verificado en
+   * payloads reales de Madrid, A Coruña y Sevilla (2026-09-07).
+   */
+  value?: string | number;
   periodo?: string;
 }
 
@@ -126,6 +141,9 @@ export interface EstacionInventario {
   indicativo: string;
   nombre: string;
   provincia?: string;
+  /** DMS empaquetado con hemisferio: "402441N". Ver `parseCoordenadaDMS`. */
   latitud?: string;
   longitud?: string;
+  /** Metros sobre el nivel del mar, como cadena. */
+  altitud?: string;
 }

@@ -49,6 +49,14 @@ También puede lanzarse a mano desde **Actions → Publish to npm → Run workfl
   OIDC; se necesita npm ≥ 11.5.1).
 - `publishConfig` en `package.json`: `access: public` y
   `registry: https://registry.npmjs.org/`.
+- **Validación del tarball antes de publicar**: el workflow ejecuta
+  `npm run test:pack`, que empaqueta, instala el resultado en un proyecto limpio y
+  comprueba resolución ESM y CommonJS, tipos, permisos del binario y handshake
+  MCP. Es lo último que corre antes de `npm publish`, y es la única red que atrapa
+  los fallos que solo existen en el artefacto publicado (condiciones de `exports`
+  mal puestas, ficheros que faltan en `files`, bit de ejecución perdido).
+- El build se ejecuta **antes** que los tests: el smoke test del servidor MCP
+  arranca `dist/index.js` como proceso hijo.
 
 ## Publicación manual de emergencia
 

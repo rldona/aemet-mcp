@@ -11,6 +11,21 @@ export function text(body: string): CallToolResult {
   return { content: [{ type: "text", text: body }] };
 }
 
+/**
+ * Resultado con texto Y datos estructurados. El texto se mantiene para los
+ * clientes que ya lo consumían; `structuredContent` es lo que valida el
+ * `outputSchema` de la tool.
+ */
+export function structured<T extends object>(
+  body: string,
+  data: T,
+): CallToolResult {
+  return {
+    content: [{ type: "text", text: body }],
+    structuredContent: data as Record<string, unknown>,
+  };
+}
+
 export function errorText(body: string): CallToolResult {
   return { content: [{ type: "text", text: body }], isError: true };
 }

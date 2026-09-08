@@ -32,14 +32,27 @@ códigos ni JSON crudo.
 
 ## Requisitos
 
-- Node.js ≥ 18
+- Node.js ≥ 20.19
 - Una **API key gratuita de AEMET OpenData**.
+
+El paquete es **ESM-only**: se publica un único build ES module, sin build
+CommonJS. Aun así se puede consumir desde CommonJS con `require()`, porque Node
+≥ 20.19 soporta `require(esm)` — de ahí ese suelo exacto. En Node 18 el
+`import()` dinámico funciona, pero `require()` falla con `ERR_REQUIRE_ESM`.
 
 ### Obtener la API key
 
 1. Ve a <https://opendata.aemet.es/centrodedescargas/inicio> → "Solicitar API Key".
 2. Introduce tu email; recibirás la key por correo (es un token largo tipo JWT).
 3. Guárdala; se pasa al servidor por la variable de entorno `AEMET_API_KEY`.
+
+### Diagnóstico
+
+`AEMET_MCP_LOG` controla el detalle de los mensajes, que van **siempre a
+`stderr`** (`stdout` es el canal del protocolo MCP): `silent`, `error`, `warn`
+(por defecto), `info` o `debug`. En `debug` se registran duración de cada
+petición, reintentos y aciertos de caché. Nunca se registran credenciales: las
+cabeceras no se tocan y a las URL se les borra la query.
 
 ## Uso con Claude Desktop
 
@@ -79,17 +92,37 @@ En `~/.cursor/mcp.json` (o Settings → MCP → Add):
 
 ## Herramientas
 
-| Herramienta            | Entrada                               | Devuelve |
-|------------------------|---------------------------------------|----------|
-| `buscar_municipio`     | `nombre`                              | Municipios coincidentes + código INE. |
-| `prediccion_diaria`    | `municipio` (nombre o código), `dias?`| Predicción diaria (1-7 días): máx/mín, cielo, prob. lluvia, viento. |
-| `prediccion_horaria`   | `municipio`, `dias?`                  | Predicción hora a hora (hoy y mañana). |
-| `observacion_estacion` | `estacion?` (idema o nombre)          | Última observación (por defecto Madrid-Retiro). |
-| `avisos`               | `area` (CCAA)                         | Avisos meteorológicos vigentes (nivel, zona, periodo). |
+| Herramienta             | Entrada                                | Devuelve |
+|-------------------------|----------------------------------------|----------|
+| `buscar_municipio`      | `nombre`                                          | Municipios coincidentes + código INE, provincia e isla. |
+| `buscar_estacion`       | `consulta`, `limite?`                             | Estaciones de AEMET con idema, provincia, coordenadas y altitud. |
+| `prediccion_diaria`     | `municipio` (nombre o código), `dias?`, `desde?`, `hasta?` | Predicción diaria (1-7 días): máx/mín, cielo, prob. lluvia, viento. |
+| `prediccion_horaria`    | `municipio`, `dias?`, `desde?`, `hasta?`          | Predicción hora a hora (hoy y mañana). |
+| `observacion_estacion`  | `estacion?` (idema o nombre)                      | Última observación (por defecto Madrid-Retiro). |
+| `observacion_municipio` | `municipio`, `estacion?`                          | Tiempo actual en la estación con datos más cercana, con distancia y aviso si no representa al municipio. |
+| `avisos`                | `area` (CCAA)                                     | Avisos meteorológicos vigentes (nivel, zona, periodo). |
+| `avisos_municipio`      | `municipio`, `incluirComunidad?`                  | Avisos que afectan a ese municipio, acotados por geometría. |
 
-Los nombres se resuelven a código INE con tolerancia a acentos/mayúsculas; si un
-nombre es ambiguo (p. ej. "Villanueva"), la herramienta devuelve las opciones con
-su código para desambiguar.
+Los nombres se resuelven a código INE con tolerancia a acentos, mayúsculas y
+artículos: `El Campello`, `Campello` y `Campello, el` (la forma del INE) llevan al
+mismo sitio. Si un nombre es ambiguo (p. ej. "Villanueva" o "La Zarza", que existe
+en Badajoz y en Valladolid), la herramienta devuelve las opciones con su provincia
+y su código para desambiguar.
+
+**Islas.** AEMET solo entiende municipios, pero la gente pregunta por islas. Los
+nombres de las 11 islas de Canarias y Baleares se reconocen y devuelven sus
+municipios: "El Hierro" da Frontera, Valverde y El Pinar, y no "Cueva del Hierro"
+(Cuenca). Cada municipio insular lleva su `isla`, que es lo que permite saber cuál
+de los quince "Valverde" es el de El Hierro.
+
+**Unidades y fechas.** Todo el viento va en **km/h** y la dirección viene en las
+dos formas (rumbo y grados), venga como venga de AEMET. Los instantes salen en ISO
+8601 con offset explícito. Cada respuesta con magnitudes trae un campo `unidades`
+en el propio payload, para no tener que deducirlas del orden de magnitud.
+
+Todas las herramientas declaran `outputSchema` y devuelven `structuredContent`
+además del texto, así que un agente puede consumir los valores tipados —fechas,
+códigos, grados, porcentajes— sin parsear prosa.
 
 ### Ejemplos de salida
 
@@ -110,12 +143,12 @@ lunes 20/07
 
 ```
 Última observación — MADRID RETIRO (estación 3195)
-Hora (UTC): 2026-07-19T07:00:00+0000
+Hora del dato: 2026-07-19T07:00:00+00:00
 
 Temperatura:  21.7 °C
 Humedad:      41 %
 Precip. (última hora): 0 mm
-Viento:       1.4 m/s del 143°
+Viento:       SE a 5 km/h (143°)
 Presión:      939.2 hPa
 ```
 
@@ -150,6 +183,9 @@ avisos (tar + CAP XML).
 > ⚠️ La API key va **siempre en el servidor** (variable de entorno), nunca en el
 > navegador.
 
+El paquete es ESM-only (ver [Requisitos](#requisitos)): `import` desde ESM, o
+`require()` desde CommonJS en Node ≥ 20.19.
+
 ```ts
 import {
   AemetClient,
@@ -157,6 +193,7 @@ import {
   resolverArea,
   obtenerAvisos,
   formatDiaria,
+  seleccionarDias,
   type PrediccionDiariaMunicipio,
 } from "@rldona/aemet-mcp";
 
@@ -172,7 +209,7 @@ const [pred] = await client.fetchJson<PrediccionDiariaMunicipio[]>(
 console.log(pred.prediccion.dia[0]?.temperatura); // { maxima, minima, dato, ... }
 
 // (opcional) texto legible ya formateado
-console.log(formatDiaria(pred, 3));
+console.log(formatDiaria(pred, seleccionarDias(pred.prediccion.dia, { max: 3 })));
 
 // 3) Avisos vigentes de una CCAA (descomprime el tar.gz y parsea el CAP por ti)
 const andalucia = resolverArea("Andalucía"); // { codigo: "61", nombre: "Andalucía" }
@@ -186,14 +223,17 @@ const { avisos } = await obtenerAvisos(client, andalucia.codigo);
 | Cliente | `AemetClient`, `TTL`, `AemetError`, `describeEstado`, `TtlCache` |
 | Encoding | `reparaMojibake`, `reparaProfundo` |
 | Municipios | `resolverMunicipio`, `buscarMunicipios`, `municipioPorCodigo`, `esCodigoINE`, `normalize`, `totalMunicipios` |
+| Islas | `resolverIsla`, `islaDeMunicipio`, `islas`, `municipiosDeIsla`, `municipiosDeProvincia` |
+| Unidades | `msAKmh`, `rumboDesdeGrados`, `gradosDesdeRumbo`, `vientoDeObservacion`, `vientoDePrediccion`, `isoConOffset` |
 | Áreas / avisos | `AREAS`, `resolverArea`, `areaParaMunicipio`, `obtenerAvisos`, `extraerAvisos`, `parseCapAlert`, `claveAviso` |
 | Estaciones | `resolverEstacion`, `pareceIdema` |
-| Formateadores | `formatDiaria`, `formatHoraria`, `formatObservacion`, `formatAvisos`, `formatMunicipios` |
-| Bajo nivel | `untar` |
+| Formateadores | `formatDiaria`, `formatHoraria`, `formatObservacion`, `formatAvisos`, `formatMunicipios`, `seleccionarDias` |
+| Bajo nivel | `untar`, `readOctal`, `validarUrlDatos`, `AEMET_HOSTS` |
 | Tipos | `PrediccionDiariaMunicipio`, `PrediccionHorariaMunicipio`, `Observacion`, `Municipio`, `Aviso`, `NivelAviso`, `ResultadoAvisos`, … |
 
-El `AemetClient` acepta opciones (`maxRetries`, `backoffBaseMs`, `fetchImpl`,
-`sleep`) además de `apiKey`. Los tipos van incluidos (`dist/lib.d.ts`).
+El `AemetClient` acepta opciones (`timeoutMs`, `maxBytes`, `maxRetries`,
+`backoffBaseMs`, `allowedHosts`, `fetchImpl`, `sleep`) además de `apiKey`. Los
+tipos van incluidos (`dist/lib.d.ts`).
 
 📖 **Referencia completa** (todas las funciones, tipos, rutas de endpoint y recetas
 para una web del tiempo): [docs/library.md](./docs/library.md).
@@ -228,6 +268,7 @@ npm install
 npm test                 # unitarios (fetch mockeado; sin API key)
 npm run typecheck
 npm run build
+npm run test:pack        # valida el tarball instalado en un proyecto limpio
 
 # Test de integración real contra AEMET:
 AEMET_API_KEY=xxx npx vitest run test/integration.aemet.test.ts

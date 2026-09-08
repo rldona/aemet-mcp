@@ -20,6 +20,50 @@
 - Dependencias de runtime mínimas (`@modelcontextprotocol/sdk`, `zod`) para reducir
   superficie de ataque (ver [ADR-0002](./docs/adr/0002-sin-dependencias-pesadas.md)).
 
+## Auditoría de dependencias
+
+CI ejecuta `npm run audit:prod` (`npm audit --omit=dev --audit-level=high`) en cada
+push y pull request, y **falla ante vulnerabilidades altas o críticas** en
+dependencias de producción.
+
+**Por qué solo producción.** Las dependencias de desarrollo (tsup, vitest,
+typescript) no viajan en el paquete publicado: un aviso en ellas no afecta a quien
+instala `@rldona/aemet-mcp`. Bloquear el merge por eso sería ruido.
+
+**Por qué el umbral está en `high`.** Los avisos moderados en este árbol suelen ser
+DoS en rutas HTTP que este servidor no ejecuta (habla stdio). Se revisan, pero no
+paran el trabajo.
+
+**Transitivas que no podemos actualizar directamente.** El SDK de MCP arrastra un
+servidor HTTP completo (`express`, `hono`, `express-rate-limit`) para transportes
+que este proyecto no usa. Cuando ahí aparece un aviso y el SDK aún no ha publicado
+la actualización, se fija la versión parcheada con `overrides` en `package.json`,
+comentando por qué. Es lo que hay hoy para `ip-address`, `hono`,
+`@hono/node-server`, `qs` y `fast-uri`.
+
+**Excepciones.** `npm audit` no permite silenciar un aviso concreto, así que la vía
+no es relajar el umbral global para esquivar uno. Si un aviso no es explotable aquí
+y aún no hay versión parcheada, se documenta en el PR —enlace al advisory, por qué
+no aplica y fecha de revisión— y, si hace falta desbloquear el merge, se usa un
+`overrides` temporal apuntando a la última versión disponible.
+
+## Cadena de publicación
+
+El paquete se publica con **Trusted Publishing (OIDC)** desde GitHub Actions: sin
+`NPM_TOKEN`, con provenance. Alrededor de eso:
+
+- **Las GitHub Actions van fijadas por SHA de commit**, no por tag. Un tag como
+  `v4` es móvil: quien controle el repositorio de la acción puede reapuntarlo a
+  otro commit, y ese código correría en un job que tiene permiso de publicación.
+  El comentario `# v4` que acompaña a cada SHA es informativo; el SHA manda.
+- **La versión de npm del workflow de publicación está fijada** en lugar de usar
+  `@latest`, por el mismo motivo: ese job publica, y `@latest` arrastraría
+  cualquier versión recién salida sin revisión.
+- **CI declara `permissions: contents: read`**, para no heredar los permisos por
+  defecto del repositorio.
+- Dependabot revisa las Actions una vez al mes y actualiza SHA y comentario a la
+  vez. La versión de npm no la cubre: se sube a mano al preparar cada release.
+
 ## Reportar una vulnerabilidad
 
 Si encuentras un problema de seguridad:

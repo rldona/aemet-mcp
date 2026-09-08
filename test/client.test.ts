@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { AemetClient } from "../src/aemet/client.js";
+import { AemetClient, validarUrlDatos } from "../src/aemet/client.js";
 import { AemetError } from "../src/aemet/errors.js";
 
 /**
@@ -200,5 +200,304 @@ describe("AemetClient reintentos ante 429", () => {
     await expect(client.fetchJson("/x")).rejects.toMatchObject({ code: "RATE_LIMITED" });
     // 1 intento inicial + 2 reintentos = 3 llamadas al primer salto.
     expect(fetchImpl).toHaveBeenCalledTimes(3);
+  });
+});
+
+
+// ---------------------------------------------------------------------------
+// Timeout (ticket 1)
+// ---------------------------------------------------------------------------
+
+/** Error equivalente al que lanza `fetch` cuando salta `AbortSignal.timeout`. */
+function timeoutError(): Error {
+  const e = new Error("The operation was aborted due to timeout");
+  e.name = "TimeoutError";
+  return e;
+}
+
+describe("AemetClient timeout", () => {
+  it("pasa un AbortSignal a fetch en cada intento", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(
+        envelopeResponse({ estado: 200, descripcion: "ok", datos: DATOS_URL }),
+      )
+      .mockResolvedValueOnce(bytesResponse(new TextEncoder().encode("[]")));
+
+    const client = new AemetClient({ apiKey: "K", fetchImpl, timeoutMs: 1234 });
+    await client.fetchJson("/x");
+
+    for (const call of fetchImpl.mock.calls) {
+      expect(call[1]?.signal).toBeInstanceOf(AbortSignal);
+    }
+  });
+
+  it("reintenta el timeout y acaba lanzando TIMEOUT", async () => {
+    const fetchImpl = vi.fn().mockRejectedValue(timeoutError());
+    const sleep = vi.fn(async () => {});
+    const client = new AemetClient({ apiKey: "K", fetchImpl, maxRetries: 2, sleep });
+
+    await expect(client.fetchJson("/x")).rejects.toMatchObject({ code: "TIMEOUT" });
+    expect(fetchImpl).toHaveBeenCalledTimes(3); // 1 intento + 2 reintentos
+  });
+
+  it("un timeout aislado se reintenta y la operación se completa", async () => {
+    const payload = [{ ok: true }];
+    const fetchImpl = vi
+      .fn()
+      .mockRejectedValueOnce(timeoutError())
+      .mockResolvedValueOnce(
+        envelopeResponse({ estado: 200, descripcion: "ok", datos: DATOS_URL }),
+      )
+      .mockResolvedValueOnce(
+        bytesResponse(new TextEncoder().encode(JSON.stringify(payload))),
+      );
+    const sleep = vi.fn(async () => {});
+    const client = new AemetClient({ apiKey: "K", fetchImpl, maxRetries: 3, sleep });
+
+    await expect(client.fetchJson("/x")).resolves.toEqual(payload);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// URL de datos: la API key no sale de los hosts de AEMET (ticket 2)
+// ---------------------------------------------------------------------------
+
+describe("validarUrlDatos", () => {
+  it("acepta los hosts de AEMET por HTTPS", () => {
+    expect(validarUrlDatos("https://opendata.aemet.es/opendata/sh/x")).toContain(
+      "opendata.aemet.es",
+    );
+    expect(() => validarUrlDatos("https://www.aemet.es/x")).not.toThrow();
+  });
+
+  const rechazadas = [
+    ["host ajeno", "https://evil.example.com/x"],
+    ["sufijo que imita el host", "https://opendata.aemet.es.evil.com/x"],
+    ["sin TLS", "http://opendata.aemet.es/x"],
+    ["otro esquema", "file:///etc/passwd"],
+    ["URL ilegible", "no-es-una-url"],
+  ] as const;
+
+  for (const [caso, url] of rechazadas) {
+    it(`rechaza ${caso}`, () => {
+      expect(() => validarUrlDatos(url)).toThrowError(
+        expect.objectContaining({ code: "UNSAFE_URL" }),
+      );
+    });
+  }
+
+  it("respeta una lista de hosts propia", () => {
+    expect(() =>
+      validarUrlDatos("https://mirror.interno/x", ["mirror.interno"]),
+    ).not.toThrow();
+  });
+});
+
+describe("AemetClient segundo salto", () => {
+  it("no envía la API key si AEMET apunta fuera de sus hosts", async () => {
+    const fetchImpl = vi.fn().mockResolvedValueOnce(
+      envelopeResponse({
+        estado: 200,
+        descripcion: "ok",
+        datos: "https://evil.example.com/roba-la-key",
+      }),
+    );
+    const client = new AemetClient({ apiKey: "SECRETA", fetchImpl });
+
+    await expect(client.fetchJson("/x")).rejects.toMatchObject({
+      code: "UNSAFE_URL",
+    });
+    // Solo el primer salto: la key nunca viaja al host no autorizado.
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(fetchImpl.mock.calls[0]?.[0]).toContain("opendata.aemet.es");
+  });
+
+  it("no sigue redirecciones en el salto de datos", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(
+        envelopeResponse({ estado: 200, descripcion: "ok", datos: DATOS_URL }),
+      )
+      .mockResolvedValueOnce(bytesResponse(new Uint8Array(0), 302));
+    const client = new AemetClient({ apiKey: "K", fetchImpl });
+
+    await expect(client.fetchJson("/x")).rejects.toMatchObject({
+      code: "UNSAFE_URL",
+    });
+    expect(fetchImpl).toHaveBeenCalledTimes(2); // no hay tercer salto
+    expect(fetchImpl.mock.calls[1]?.[1]?.redirect).toBe("manual");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tope de tamaño (ticket 3)
+// ---------------------------------------------------------------------------
+
+describe("AemetClient tope de tamaño", () => {
+  it("rechaza un cuerpo mayor que maxBytes", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(
+        envelopeResponse({ estado: 200, descripcion: "ok", datos: DATOS_URL }),
+      )
+      .mockResolvedValueOnce(bytesResponse(new Uint8Array(5000)));
+    const client = new AemetClient({ apiKey: "K", fetchImpl, maxBytes: 1000 });
+
+    await expect(client.fetchJson("/x")).rejects.toMatchObject({
+      code: "TOO_LARGE",
+    });
+  });
+
+  it("rechaza por Content-Length antes de leer el cuerpo", async () => {
+    const arrayBuffer = vi.fn(async () => new ArrayBuffer(0));
+    const enorme = {
+      status: 200,
+      ok: true,
+      headers: new Headers({ "content-length": "999999999" }),
+      arrayBuffer,
+    } as unknown as Response;
+
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(
+        envelopeResponse({ estado: 200, descripcion: "ok", datos: DATOS_URL }),
+      )
+      .mockResolvedValueOnce(enorme);
+    const client = new AemetClient({ apiKey: "K", fetchImpl, maxBytes: 1000 });
+
+    await expect(client.fetchJson("/x")).rejects.toMatchObject({
+      code: "TOO_LARGE",
+    });
+    expect(arrayBuffer).not.toHaveBeenCalled();
+  });
+
+  it("no reintenta un TOO_LARGE: es un fallo permanente", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(
+        envelopeResponse({ estado: 200, descripcion: "ok", datos: DATOS_URL }),
+      )
+      .mockResolvedValue(bytesResponse(new Uint8Array(5000)));
+    const sleep = vi.fn(async () => {});
+    const client = new AemetClient({
+      apiKey: "K",
+      fetchImpl,
+      maxBytes: 10,
+      maxRetries: 3,
+      sleep,
+    });
+
+    await expect(client.fetchJson("/x")).rejects.toMatchObject({ code: "TOO_LARGE" });
+    expect(sleep).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Reintentos: Retry-After, jitter y presupuesto compartido (ticket 4)
+// ---------------------------------------------------------------------------
+
+/** Igual que envelopeResponse pero con cabeceras. */
+function envelopeConCabeceras(body: unknown, headers: Record<string, string>): Response {
+  const base = envelopeResponse(body);
+  return { ...base, headers: new Headers(headers) } as unknown as Response;
+}
+
+describe("AemetClient reintentos", () => {
+  it("respeta Retry-After en segundos ante un 429", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(
+        envelopeConCabeceras({ estado: 429, descripcion: "slow down" }, {
+          "retry-after": "2",
+        }),
+      )
+      .mockResolvedValueOnce(
+        envelopeResponse({ estado: 200, descripcion: "ok", datos: DATOS_URL }),
+      )
+      .mockResolvedValueOnce(bytesResponse(new TextEncoder().encode("[]")));
+
+    const sleep = vi.fn(async () => {});
+    const client = new AemetClient({ apiKey: "K", fetchImpl, sleep });
+    await client.fetchJson("/x");
+
+    expect(sleep).toHaveBeenCalledWith(2000);
+  });
+
+  it("acota un Retry-After desmedido a 30 s", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(
+        envelopeConCabeceras({ estado: 429, descripcion: "slow down" }, {
+          "retry-after": "86400",
+        }),
+      )
+      .mockResolvedValueOnce(
+        envelopeResponse({ estado: 200, descripcion: "ok", datos: DATOS_URL }),
+      )
+      .mockResolvedValueOnce(bytesResponse(new TextEncoder().encode("[]")));
+
+    const sleep = vi.fn(async () => {});
+    const client = new AemetClient({ apiKey: "K", fetchImpl, sleep });
+    await client.fetchJson("/x");
+
+    expect(sleep).toHaveBeenCalledWith(30_000);
+  });
+
+  it("aplica jitter al backoff: mitad fija, mitad aleatoria", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(envelopeResponse({ estado: 429, descripcion: "x" }))
+      .mockResolvedValueOnce(
+        envelopeResponse({ estado: 200, descripcion: "ok", datos: DATOS_URL }),
+      )
+      .mockResolvedValueOnce(bytesResponse(new TextEncoder().encode("[]")));
+
+    const sleep = vi.fn(async () => {});
+    const client = new AemetClient({
+      apiKey: "K",
+      fetchImpl,
+      sleep,
+      backoffBaseMs: 400,
+      random: () => 1, // jitter máximo
+    });
+    await client.fetchJson("/x");
+
+    // base 400 -> 200 fijos + 200 * random
+    expect(sleep).toHaveBeenCalledWith(400);
+  });
+
+  it("reintenta 5xx HTTP también en el primer salto", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(bytesResponse(new Uint8Array(0), 503))
+      .mockResolvedValueOnce(
+        envelopeResponse({ estado: 200, descripcion: "ok", datos: DATOS_URL }),
+      )
+      .mockResolvedValueOnce(bytesResponse(new TextEncoder().encode("[]")));
+
+    const sleep = vi.fn(async () => {});
+    const client = new AemetClient({ apiKey: "K", fetchImpl, sleep });
+    await expect(client.fetchJson("/x")).resolves.toEqual([]);
+    expect(fetchImpl).toHaveBeenCalledTimes(3);
+  });
+
+  it("el presupuesto de reintentos es global a la operación, no por salto", async () => {
+    const fetchImpl = vi
+      .fn()
+      // salto 1: un 429 que consume presupuesto
+      .mockResolvedValueOnce(envelopeResponse({ estado: 429, descripcion: "x" }))
+      .mockResolvedValueOnce(
+        envelopeResponse({ estado: 200, descripcion: "ok", datos: DATOS_URL }),
+      )
+      // salto 2: falla siempre
+      .mockRejectedValue(new TypeError("fetch failed"));
+
+    const sleep = vi.fn(async () => {});
+    const client = new AemetClient({ apiKey: "K", fetchImpl, maxRetries: 2, sleep });
+
+    await expect(client.fetchJson("/x")).rejects.toMatchObject({ code: "NETWORK" });
+    // 2 saltos + 2 reintentos en total. Sin presupuesto compartido serían 6.
+    expect(fetchImpl).toHaveBeenCalledTimes(4);
   });
 });

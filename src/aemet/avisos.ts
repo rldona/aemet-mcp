@@ -1,15 +1,30 @@
 import { gunzipSync } from "node:zlib";
 import type { AemetClient } from "./client.js";
 import { TtlCache } from "./cache.js";
-import { untar } from "./tar.js";
+import { AemetError } from "./errors.js";
+import { untar, type UntarOptions } from "./tar.js";
+import { parsePoligono, puntoEnPoligono, type Punto } from "./geo.js";
 
 export type NivelAviso = "amarillo" | "naranja" | "rojo";
+
+/** Zona geográfica cubierta por un aviso. Un aviso puede cubrir varias. */
+export interface ZonaAviso {
+  /** Nombre de la zona, p. ej. "Cuenca del Genil". */
+  descripcion: string;
+  /** Código de zona de AEMET-Meteoalerta, p. ej. "611801". */
+  codigo?: string;
+  /** Contornos de la zona. Una zona puede tener varios (islas, enclaves). */
+  poligonos: Punto[][];
+}
 
 /** Un aviso meteorológico ya parseado y filtrado (vigente, no verde). */
 export interface Aviso {
   nivel: NivelAviso;
   fenomeno: string;
+  /** Primera zona, para el texto de siempre. Ver `zonas` para el alcance real. */
   zona: string;
+  /** Todas las zonas del aviso: un mismo CAP puede cubrir decenas. */
+  zonas: ZonaAviso[];
   onset?: string;
   expires?: string;
   descripcion?: string;
@@ -27,10 +42,45 @@ const NIVEL_ORDEN: Record<NivelAviso, number> = { rojo: 3, naranja: 2, amarillo:
 // Caché propia (los avisos se re-elaboran cada pocas horas; TTL 10 min).
 const cache = new TtlCache<ResultadoAvisos>(10 * 60_000);
 
-/** Descomprime si viene en gzip; si `fetch` ya lo descomprimió, es un tar plano. */
-function aTar(bytes: Uint8Array): Uint8Array {
+/** Tope por defecto de bytes descomprimidos. Un área CAP real ronda los cientos de KB. */
+export const DEFAULT_MAX_DESCOMPRIMIDO = 64 * 1024 * 1024;
+
+/**
+ * Descomprime si viene en gzip; si `fetch` ya lo descomprimió, es un tar plano.
+ *
+ * `maxOutputLength` acota la expansión: sin él, un gzip de unos pocos KB puede
+ * expandirse hasta agotar la memoria del proceso.
+ */
+function aTar(bytes: Uint8Array, maxBytes: number): Uint8Array {
   const esGzip = bytes[0] === 0x1f && bytes[1] === 0x8b;
-  return esGzip ? new Uint8Array(gunzipSync(bytes)) : bytes;
+  if (!esGzip) {
+    if (bytes.byteLength > maxBytes) throw errorDemasiadoGrande(maxBytes);
+    return bytes;
+  }
+  try {
+    return new Uint8Array(gunzipSync(bytes, { maxOutputLength: maxBytes }));
+  } catch (cause) {
+    // Node lanza ERR_BUFFER_TOO_LARGE al superar maxOutputLength.
+    if ((cause as { code?: string }).code === "ERR_BUFFER_TOO_LARGE") {
+      throw errorDemasiadoGrande(maxBytes);
+    }
+    throw new AemetError(
+      "PARSE",
+      `No se pudo descomprimir el fichero de avisos de AEMET: ${(cause as Error).message}`,
+    );
+  }
+}
+
+function errorDemasiadoGrande(maxBytes: number): AemetError {
+  return new AemetError(
+    "TOO_LARGE",
+    `El fichero de avisos de AEMET supera el máximo descomprimido (${maxBytes} bytes).`,
+  );
+}
+
+export interface ExtraerAvisosOptions extends UntarOptions {
+  /** Tope de bytes tras descomprimir. Def: 64 MiB. */
+  maxBytesDescomprimidos?: number;
 }
 
 function decodeEntities(s: string): string {
@@ -46,6 +96,28 @@ function decodeEntities(s: string): string {
 function tag(xml: string, name: string): string | undefined {
   const m = xml.match(new RegExp(`<${name}>([\\s\\S]*?)</${name}>`));
   return m ? decodeEntities(m[1]!.trim()) : undefined;
+}
+
+/**
+ * Zonas del bloque <info>: cada <area> trae su nombre, su código de zona y uno o
+ * varios polígonos. AEMET emite avisos que cubren decenas de zonas en un único
+ * fichero CAP, así que quedarse con la primera daba una idea falsa del alcance.
+ */
+function parseZonas(infoXml: string): ZonaAviso[] {
+  const zonas: ZonaAviso[] = [];
+  for (const bloque of infoXml.match(/<area>[\s\S]*?<\/area>/g) ?? []) {
+    const descripcion = tag(bloque, "areaDesc");
+    if (!descripcion) continue;
+    const poligonos = (bloque.match(/<polygon>([\s\S]*?)<\/polygon>/g) ?? [])
+      .map((p) => parsePoligono(p.replace(/<\/?polygon>/g, "")))
+      .filter((p) => p.length > 0);
+    zonas.push({
+      descripcion,
+      codigo: parametro(bloque, "AEMET-Meteoalerta zona"),
+      poligonos,
+    });
+  }
+  return zonas;
 }
 
 /** Valor de un <parameter> por su <valueName>. */
@@ -91,10 +163,13 @@ export function parseCapAlert(xml: string, now: number): Aviso | null {
     ? fenParam.split(";").slice(1).join(";").trim()
     : (fenParam ?? tag(infoEs, "event") ?? "Fenómeno meteorológico");
 
+  const zonas = parseZonas(infoEs);
+
   return {
     nivel: nivelRaw,
     fenomeno,
-    zona: tag(infoEs, "areaDesc") ?? "—",
+    zona: zonas[0]?.descripcion ?? tag(infoEs, "areaDesc") ?? "—",
+    zonas,
     onset: tag(infoEs, "onset"),
     expires,
     descripcion: tag(infoEs, "description"),
@@ -103,8 +178,13 @@ export function parseCapAlert(xml: string, now: number): Aviso | null {
 }
 
 /** Extrae y ordena los avisos vigentes de un tar(.gz) de CAP. Función pura. */
-export function extraerAvisos(bytes: Uint8Array, now: number): ResultadoAvisos {
-  const files = untar(aTar(bytes)).filter((f) => f.name.endsWith(".xml"));
+export function extraerAvisos(
+  bytes: Uint8Array,
+  now: number,
+  opts: ExtraerAvisosOptions = {},
+): ResultadoAvisos {
+  const tar = aTar(bytes, opts.maxBytesDescomprimidos ?? DEFAULT_MAX_DESCOMPRIMIDO);
+  const files = untar(tar, opts).filter((f) => f.name.endsWith(".xml"));
   const avisos: Aviso[] = [];
   let elaborado: string | undefined;
 
@@ -145,4 +225,40 @@ export async function obtenerAvisos(
     );
     return extraerAvisos(bytes, now);
   });
+}
+
+/**
+ * Filtra los avisos que cubren un punto concreto.
+ *
+ * Un aviso entra si alguna de sus zonas contiene el punto. Las zonas sin
+ * polígono utilizable no se pueden evaluar: se conservan en `sinGeometria`
+ * en lugar de descartarse, porque descartar en silencio un aviso rojo por no
+ * saber dibujarlo es peor que mostrarlo de más.
+ */
+export function avisosParaPunto(
+  avisos: Aviso[],
+  punto: Punto,
+): { dentro: Aviso[]; sinGeometria: Aviso[]; fuera: Aviso[] } {
+  const dentro: Aviso[] = [];
+  const sinGeometria: Aviso[] = [];
+  const fuera: Aviso[] = [];
+
+  for (const aviso of avisos) {
+    const conGeometria = aviso.zonas.filter((z) => z.poligonos.length > 0);
+    if (conGeometria.length === 0) {
+      sinGeometria.push(aviso);
+      continue;
+    }
+    const zonas = conGeometria.filter((z) =>
+      z.poligonos.some((p) => puntoEnPoligono(punto, p)),
+    );
+    // Los de `dentro` son COPIAS, acotadas a las zonas que cubren el punto. Por
+    // eso `fuera` se devuelve aquí y no se calcula fuera restando por identidad:
+    // quien lo intentara volvería a incluir en "los que no te afectan" el mismo
+    // aviso que acaba de decir que sí te afecta.
+    if (zonas.length > 0) dentro.push({ ...aviso, zonas, zona: zonas[0]!.descripcion });
+    else fuera.push(aviso);
+  }
+
+  return { dentro, sinGeometria, fuera };
 }

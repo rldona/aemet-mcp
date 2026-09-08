@@ -8,18 +8,32 @@ export type AemetErrorCode =
   | "RATE_LIMITED" // estado 429: too many requests
   | "UPSTREAM" // otro estado inesperado de AEMET
   | "NETWORK" // fallo de red / fetch
+  | "TIMEOUT" // la petición excedió el tiempo máximo
+  | "TOO_LARGE" // la respuesta supera el tamaño máximo aceptado
+  | "UNSAFE_URL" // AEMET apuntó a una URL a la que no se envía la API key
   | "PARSE"; // respuesta no parseable
 
 export class AemetError extends Error {
   readonly code: AemetErrorCode;
   /** Código `estado` de AEMET o status HTTP asociado, si aplica. */
   readonly status?: number;
+  /**
+   * Cuánto conviene esperar antes de reintentar, en ms. Solo en RATE_LIMITED, y
+   * solo si AEMET lo indicó con `Retry-After`: no se inventa un número.
+   */
+  readonly retryAfterMs?: number;
 
-  constructor(code: AemetErrorCode, message: string, status?: number) {
+  constructor(
+    code: AemetErrorCode,
+    message: string,
+    status?: number,
+    retryAfterMs?: number,
+  ) {
     super(message);
     this.name = "AemetError";
     this.code = code;
     this.status = status;
+    this.retryAfterMs = retryAfterMs;
   }
 }
 
@@ -32,7 +46,13 @@ export function describeEstado(estado: number, descripcion?: string): string {
     case 404:
       return `AEMET no tiene datos para el recurso solicitado: ${base}.`;
     case 429:
-      return `Límite de peticiones de AEMET superado: ${base}. Reintenta más tarde.`;
+      return (
+        `Límite de peticiones de AEMET superado: ${base}. ` +
+        `El servidor ya ha reintentado con espera y sigue limitado, así que no ` +
+        `sirve de nada repetir de inmediato. La cuota se libera sola; en pruebas ` +
+        `contra la API bastó con esperar alrededor de un minuto. Mientras tanto, ` +
+        `agrupa lo que necesites en menos llamadas en vez de encadenarlas.`
+      );
     default:
       return `Respuesta inesperada de AEMET: ${base}.`;
   }

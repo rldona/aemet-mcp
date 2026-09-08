@@ -154,7 +154,12 @@ Detalles:
 ## 8. Build y distribución
 
 - **tsup** empaqueta `src/index.ts` a un único ESM (`dist/index.js`) con shebang,
-  bundleando el JSON de municipios. Target Node 18.
+  bundleando el JSON de municipios. Target Node 20. El paquete es ESM-only:
+  no se publica build CJS.
+- **Geografía**: el dataset del INE solo trae código y nombre. La provincia se
+  deriva de los dos primeros dígitos del código (tabla de 52 entradas en
+  `provincias.ts`) y las coordenadas se piden al maestro de municipios de AEMET,
+  cacheado 24 h. Así no hay un segundo dataset que mantener.
 - `bin` apunta a `dist/index.js` → `npx @rldona/aemet-mcp` arranca el servidor.
 - **TypeScript strict** (`noUncheckedIndexedAccess`, `verbatimModuleSyntax`, …).
 
@@ -173,4 +178,4 @@ Mínimas por diseño (ver [ADR-0002](./adr/0002-sin-dependencias-pesadas.md)):
   código de estado, reintentos, caché, resolver de municipios, untar y parseo CAP.
 - **Integración real** (guardada por `AEMET_API_KEY`): predicción de Madrid y
   avisos de Andalucía contra la API en vivo.
-- **CI** en Node 18/20/22 (los tests de integración se saltan sin la key).
+- **CI** en Node 20.19/22/24 (los tests de integración se saltan sin la key).
