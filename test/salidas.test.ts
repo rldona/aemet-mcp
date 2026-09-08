@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   DISTANCIA_FIABLE_KM,
   aSalidaObservacionMunicipio,
+  aSalidaPrediccionDiaria,
   evaluarEstacion,
   type Candidata,
   type EstadoCandidata,
@@ -9,7 +10,8 @@ import {
 import { notaNombreCompartido } from "../src/aemet/homonimos.js";
 import { seleccionarDias } from "../src/aemet/format.js";
 import { municipioPorCodigo } from "../src/aemet/municipios.js";
-import type { Observacion } from "../src/aemet/types.js";
+import { mismaProvincia } from "../src/aemet/provincias.js";
+import type { Observacion, PrediccionDiariaMunicipio } from "../src/aemet/types.js";
 
 const ceuta = municipioPorCodigo("51001")!;
 const madrid = municipioPorCodigo("28079")!;
@@ -169,5 +171,85 @@ describe("seleccionarDias", () => {
 
   it("sin opciones no toca nada", () => {
     expect(seleccionarDias(dias)).toHaveLength(4);
+  });
+});
+
+describe("aSalidaPrediccionDiaria con el día ya empezado", () => {
+  const pred: PrediccionDiariaMunicipio = {
+    nombre: "Nuevo Baztán",
+    provincia: "Madrid",
+    elaborado: "2026-09-08T09:05:12",
+    prediccion: {
+      dia: [
+        {
+          fecha: "2026-09-08T00:00:00",
+          temperatura: { maxima: 35, minima: 19 },
+          estadoCielo: [
+            { value: "", periodo: "00-24", descripcion: "" },
+            { value: "11", periodo: "12-24", descripcion: "Despejado" },
+          ],
+          probPrecipitacion: [
+            { value: "", periodo: "00-24" },
+            { value: 20, periodo: "12-24" },
+          ],
+          viento: [
+            { direccion: "", velocidad: 0, periodo: "00-24" },
+            { direccion: "SO", velocidad: 25, periodo: "12-24" },
+          ],
+          rachaMax: [
+            { value: "", periodo: "00-24" },
+            { value: "40", periodo: "12-24" },
+          ],
+        },
+      ],
+    },
+  };
+
+  const dia = aSalidaPrediccionDiaria(madrid, pred, pred.prediccion.dia).dias[0]!;
+
+  it("no publica un cero de viento que en realidad es ausencia de dato", () => {
+    expect(dia.viento).toMatchObject({ direccion: "SO", velocidad: 25, rachaMaxima: 40 });
+  });
+
+  it("rellena cielo y probabilidad desde el tramo que sí tiene dato", () => {
+    expect(dia.cielo).toBe("Despejado");
+    expect(dia.probabilidadPrecipitacion).toBe(20);
+  });
+
+  it("marca que el dato no cubre el día entero", () => {
+    expect(dia.periodo).toBe("12-24");
+    expect(dia.diaCompleto).toBe(false);
+  });
+});
+
+describe("las grafías de provincia de AEMET no disparan la advertencia", () => {
+  it("reconoce las abreviaturas y los nombres cooficiales", () => {
+    expect(mismaProvincia("STA. CRUZ DE TENERIFE", "Santa Cruz de Tenerife")).toBe(true);
+    expect(mismaProvincia("SANTA CRUZ DE TENERIFE", "Santa Cruz de Tenerife")).toBe(true);
+    expect(mismaProvincia("BALEARES", "Illes Balears")).toBe(true);
+    expect(mismaProvincia("ILLES BALEARS", "Illes Balears")).toBe(true);
+    expect(mismaProvincia("ARABA/ALAVA", "Álava")).toBe(true);
+    expect(mismaProvincia("A CORUÑA", "A Coruña")).toBe(true);
+  });
+
+  it("no colapsa provincias distintas", () => {
+    expect(mismaProvincia("CADIZ", "Ceuta")).toBe(false);
+    expect(mismaProvincia("LAS PALMAS", "Santa Cruz de Tenerife")).toBe(false);
+  });
+
+  it("una estación dentro del municipio no se declara de otra provincia", () => {
+    // Caso real: la estación VALVERDE está a 0,8 km de Valverde (El Hierro),
+    // pero AEMET la etiqueta "STA. CRUZ DE TENERIFE" y saltaba la advertencia.
+    const valverde = municipioPorCodigo("38048")!;
+    const suya = estacion({
+      idema: "C928I",
+      nombre: "VALVERDE",
+      provincia: "STA. CRUZ DE TENERIFE",
+      distanciaKm: 0.8,
+    });
+    expect(evaluarEstacion(valverde, suya)).toEqual({
+      representa: true,
+      advertencia: null,
+    });
   });
 });

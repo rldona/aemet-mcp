@@ -19,9 +19,10 @@
 import { z } from "zod";
 import type { Municipio, Observacion, PrediccionDiariaMunicipio, PrediccionHorariaMunicipio, DiaDiaria, DiaHoraria } from "../aemet/types.js";
 import type { Aviso, NivelAviso, ResultadoAvisos } from "../aemet/avisos.js";
-import { pickPeriodo, probPrecipitacionDia } from "../aemet/format.js";
+import { pickPeriodo, resumenDiaDiaria } from "../aemet/format.js";
 import type { EstacionResuelta } from "../aemet/estaciones.js";
 import { isoConOffset } from "../aemet/fechas.js";
+import { mismaProvincia } from "../aemet/provincias.js";
 import { vientoDeObservacion, vientoDePrediccion } from "../aemet/viento.js";
 
 /** AEMET mezcla números y cadenas (y manda "" cuando no hay dato). */
@@ -51,6 +52,9 @@ const RUMBOS_DOC = "rumbo de 8 (N, NE, E, SE, S, SO, O, NO); 'C' = calma";
 const ELABORADO_DOC =
   "ISO 8601 con offset. AEMET lo publica sin zona; se interpreta como hora " +
   "peninsular española (Europe/Madrid), que es lo que usa para producción.";
+const PERIODO_DOC =
+  "Tramo horario del que salen cielo, viento y racha, 'HH-HH'. '00-24' es el día " +
+  "entero; cualquier otro valor va con diaCompleto false.";
 
 export const municipioSchema = z.object({
   codigo: z.string().describe("Código INE de 5 dígitos"),
@@ -126,6 +130,7 @@ const UNIDADES_DIARIA = {
   "viento.direccion": RUMBOS_DOC,
   "viento.direccionGrados": "grados desde el norte",
   fecha: "fecha local, YYYY-MM-DD",
+  periodo: PERIODO_DOC,
   elaborado: ELABORADO_DOC,
 };
 
@@ -133,8 +138,22 @@ const diaDiariaSchema = z.object({
   fecha: z.string().describe("Fecha ISO YYYY-MM-DD"),
   temperaturaMaxima: z.number().nullable().describe("°C"),
   temperaturaMinima: z.number().nullable().describe("°C"),
-  cielo: z.string().nullable().describe("Estado del cielo del día completo"),
-  probabilidadPrecipitacion: z.number().nullable().describe("% para el día completo"),
+  cielo: z
+    .string()
+    .nullable()
+    .describe("Estado del cielo. null = AEMET no lo publica; no significa despejado."),
+  probabilidadPrecipitacion: z
+    .number()
+    .nullable()
+    .describe("%. null = AEMET no lo publica; no significa 0."),
+  periodo: z.string().describe(PERIODO_DOC),
+  diaCompleto: z
+    .boolean()
+    .describe(
+      "false cuando cielo, viento y lluvia salen de un tramo del día en vez del día " +
+        "entero. Pasa con el día EN CURSO: AEMET vacía el agregado 00-24 y los tramos " +
+        "ya pasados. Hay que decírselo al usuario en vez de darlo como el día completo.",
+    ),
   viento: vientoSchema.extend({
     rachaMaxima: z
       .number()
@@ -160,19 +179,23 @@ export function aSalidaPrediccionDiaria(
   seleccion: DiaDiaria[],
 ) {
   const dias = seleccion.map((dia) => {
-    const bruto = pickPeriodo(dia.viento);
-    const viento = vientoDePrediccion(bruto?.direccion, num(bruto?.velocidad));
+    // Mismo resumen que usa el texto: si aquí se recalculara aparte, el JSON y
+    // lo que lee el usuario podrían discrepar.
+    const r = resumenDiaDiaria(dia);
+    const viento = vientoDePrediccion(r.viento?.direccion, num(r.viento?.velocidad));
     return {
       fecha: dia.fecha.slice(0, 10),
       temperaturaMaxima: num(dia.temperatura?.maxima),
       temperaturaMinima: num(dia.temperatura?.minima),
-      cielo: str(pickPeriodo(dia.estadoCielo)?.descripcion),
-      probabilidadPrecipitacion: num(probPrecipitacionDia(dia.probPrecipitacion)),
-      viento: { ...viento, rachaMaxima: num(pickPeriodo(dia.rachaMax)?.value) },
+      cielo: str(r.cielo),
+      probabilidadPrecipitacion: num(r.prob),
+      viento: { ...viento, rachaMaxima: num(r.racha) },
       humedadRelativa: {
         maxima: num(dia.humedadRelativa?.maxima),
         minima: num(dia.humedadRelativa?.minima),
       },
+      periodo: r.periodo,
+      diaCompleto: r.diaCompleto,
     };
   });
 
@@ -479,8 +502,7 @@ export function evaluarEstacion(
 ): { representa: boolean; advertencia: string | null } {
   const lejos = estacion.distanciaKm > DISTANCIA_FIABLE_KM;
   const otraProvincia =
-    !!estacion.provincia &&
-    estacion.provincia.localeCompare(m.provincia, "es", { sensitivity: "base" }) !== 0;
+    !!estacion.provincia && !mismaProvincia(estacion.provincia, m.provincia);
 
   if (!lejos && !otraProvincia) return { representa: true, advertencia: null };
 

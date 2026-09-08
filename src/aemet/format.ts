@@ -9,9 +9,10 @@ import type {
   PrediccionDiariaMunicipio,
   PrediccionHorariaMunicipio,
   RangoHorario,
+  VientoDiario,
 } from "./types.js";
 import type { Aviso, NivelAviso, ResultadoAvisos } from "./avisos.js";
-import { etiquetaMunicipio } from "./municipios.js";
+import { etiquetaLugar, etiquetaMunicipio } from "./municipios.js";
 import type { EstacionResuelta } from "./estaciones.js";
 import { isoConOffset } from "./fechas.js";
 import { textoViento, vientoDeObservacion, vientoDePrediccion } from "./viento.js";
@@ -34,6 +35,88 @@ export function pickPeriodo<T extends { periodo?: string }>(
   return arr.find((x) => x.periodo === target) ?? arr[0];
 }
 
+/** Horas que abarca un periodo "HH-HH". Sin `periodo`, es el día entero. */
+function horasDePeriodo(periodo: string | undefined): number {
+  if (periodo === undefined) return 24;
+  const m = /^(\d{1,2})-(\d{1,2})$/.exec(periodo);
+  if (!m) return 0;
+  return Number(m[2]) - Number(m[1]);
+}
+
+const conTexto = (v: unknown): boolean => String(v ?? "").trim() !== "";
+
+export interface PeriodoElegido<T> {
+  dato: T;
+  /** Periodo del que sale el dato; "00-24" cuando cubre el día entero. */
+  periodo: string;
+  diaCompleto: boolean;
+}
+
+/**
+ * Elige el periodo que de verdad trae dato, prefiriendo el que más horas cubre.
+ *
+ * `pickPeriodo` daba por bueno el "00-24" por el mero hecho de existir, y en el
+ * día EN CURSO AEMET lo publica presente pero VACÍO, igual que los subperiodos
+ * ya pasados: el dato vivo está en "12-24" y siguientes. Salía un cielo en
+ * blanco y un `direccion: ""` que el formateador convertía en "en calma", o sea
+ * afirmando que no hay viento cuando lo que pasa es que no se sabe.
+ */
+export function pickPeriodoConDato<T extends { periodo?: string }>(
+  arr: T[] | undefined,
+  tieneDato: (x: T) => boolean,
+): PeriodoElegido<T> | undefined {
+  if (!arr || arr.length === 0) return undefined;
+  let mejor: T | undefined;
+  let mejorHoras = Number.NEGATIVE_INFINITY;
+  for (const x of arr) {
+    if (!tieneDato(x)) continue;
+    const horas = horasDePeriodo(x.periodo);
+    if (horas > mejorHoras) {
+      mejor = x;
+      mejorHoras = horas;
+    }
+  }
+  if (!mejor) return undefined;
+  return { dato: mejor, periodo: mejor.periodo ?? "00-24", diaCompleto: mejorHoras >= 24 };
+}
+
+export interface ResumenDia {
+  cielo: string | undefined;
+  viento: VientoDiario | undefined;
+  racha: string | number | undefined;
+  prob: string | number | undefined;
+  /** Tramo del que salen cielo/viento/racha cuando no cubren el día entero. */
+  periodo: string;
+  diaCompleto: boolean;
+}
+
+/**
+ * Reduce un día de la predicción diaria a los valores que se muestran.
+ *
+ * Vive aquí, y no duplicado en el formateador de texto y en el mapeador de
+ * salida, porque los dos tienen que decir lo mismo: cuando divergen, el modelo
+ * lee uno y el usuario lee el otro.
+ */
+export function resumenDiaDiaria(dia: DiaDiaria): ResumenDia {
+  const cielo = pickPeriodoConDato(dia.estadoCielo, (x) => conTexto(x.descripcion));
+  const viento = pickPeriodoConDato(
+    dia.viento,
+    (x) => conTexto(x.direccion) || Number(x.velocidad) > 0,
+  );
+  const racha = pickPeriodoConDato(dia.rachaMax, (x) => conTexto(x.value));
+
+  const parcial = [cielo, viento, racha].find((x) => x !== undefined && !x.diaCompleto);
+
+  return {
+    cielo: cielo?.dato.descripcion,
+    viento: viento?.dato,
+    racha: racha?.dato.value,
+    prob: probPrecipitacionDia(dia.probPrecipitacion),
+    periodo: parcial?.periodo ?? "00-24",
+    diaCompleto: parcial === undefined,
+  };
+}
+
 /**
  * Probabilidad de precipitación del día.
  *
@@ -47,13 +130,18 @@ export function probPrecipitacionDia(
 ): string | number | undefined {
   if (!arr || arr.length === 0) return undefined;
 
-  const completo = arr.find((x) => x.periodo === "00-24");
+  // El "00-24" del día en curso viene presente pero vacío; descartarlo aquí
+  // evita presentar como "sin dato" un día del que sí se sabe el resto.
+  const conDato = arr.filter((x) => conTexto(x.value));
+  if (conDato.length === 0) return undefined;
+
+  const completo = conDato.find((x) => x.periodo === "00-24");
   if (completo) return completo.value;
-  if (arr.length === 1) return arr[0]!.value;
+  if (conDato.length === 1) return conDato[0]!.value;
 
   let mejor: RangoHorario | undefined;
   let mejorValor = Number.NEGATIVE_INFINITY;
-  for (const x of arr) {
+  for (const x of conDato) {
     const n = Number(x.value);
     if (!Number.isFinite(n)) continue;
     if (n > mejorValor) {
@@ -61,7 +149,7 @@ export function probPrecipitacionDia(
       mejor = x;
     }
   }
-  return (mejor ?? arr[0]!).value;
+  return (mejor ?? conDato[0]!).value;
 }
 
 /**
@@ -126,11 +214,16 @@ export function formatMunicipios(
 // ---------------------------------------------------------------------------
 
 export function formatDiaria(
+  m: Municipio,
   pred: PrediccionDiariaMunicipio,
   dias: DiaDiaria[],
 ): string {
   const out: string[] = [];
-  out.push(`Predicción diaria — ${pred.nombre} (${pred.provincia})`);
+  // El nombre y la provincia salen del municipio resuelto, no de `pred`: AEMET
+  // publica el nombre invertido del INE ("Pinar de El Hierro, El") y mete la
+  // isla dentro de la provincia ("Santa Cruz de Tenerife (El Hierro)"), lo que
+  // además contradecía a buscar_municipio sobre el mismo sitio.
+  out.push(`Predicción diaria — ${etiquetaLugar(m)}`);
   out.push(`Elaborada: ${isoConOffset(pred.elaborado, "Europe/Madrid") ?? "—"}`);
   if (dias.length === 0) {
     out.push("");
@@ -141,27 +234,32 @@ export function formatDiaria(
 
   for (const dia of dias) {
     const t = dia.temperatura ?? {};
-    const cielo = pickPeriodo(dia.estadoCielo)?.descripcion ?? "—";
-    const prob = probPrecipitacionDia(dia.probPrecipitacion);
-    const viento = pickPeriodo(dia.viento);
+    const r = resumenDiaDiaria(dia);
 
     const partes = [
       `  Máx ${fmtNum(t.maxima, "°C")} / Mín ${fmtNum(t.minima, "°C")}`,
-      `Cielo: ${cielo}`,
-      `Prob. precip.: ${prob !== undefined && prob !== "" ? `${prob}%` : "—"}`,
+      `Cielo: ${r.cielo ?? "sin dato"}`,
+      `Prob. precip.: ${conTexto(r.prob) ? `${r.prob}%` : "sin dato"}`,
     ];
-    if (viento?.velocidad !== undefined) {
-      const v = vientoDePrediccion(viento.direccion, viento.velocidad);
+    if (r.viento) {
+      const v = vientoDePrediccion(r.viento.direccion, r.viento.velocidad);
       let linea = `Viento: ${textoViento(v)}`;
-      const racha = pickPeriodo(dia.rachaMax)?.value;
-      if (racha) linea += ` (racha ${racha} km/h)`;
+      if (r.racha) linea += ` (racha ${r.racha} km/h)`;
       partes.push(linea);
+    } else {
+      // Antes salía "en calma", que es afirmar que no hay viento cuando lo que
+      // ocurre es que AEMET no publica el dato para ese tramo.
+      partes.push("Viento: sin dato");
     }
     const hr = dia.humedadRelativa;
     if (hr?.maxima !== undefined || hr?.minima !== undefined) {
       partes.push(`Humedad: ${fmtNum(hr.maxima, "%")} / ${fmtNum(hr.minima, "%")}`);
     }
-    out.push(`${fechaLegible(dia.fecha)}`);
+    const aviso = r.diaCompleto
+      ? ""
+      : `  ·  cielo, viento y lluvia solo del tramo ${r.periodo} h: el día ya ha empezado` +
+        ` y AEMET deja de publicar el agregado del día entero`;
+    out.push(`${fechaLegible(dia.fecha)}${aviso}`);
     out.push(partes.join("  |  "));
     out.push("");
   }
@@ -173,11 +271,12 @@ export function formatDiaria(
 // ---------------------------------------------------------------------------
 
 export function formatHoraria(
+  m: Municipio,
   pred: PrediccionHorariaMunicipio,
   dias: DiaHoraria[],
 ): string {
   const out: string[] = [];
-  out.push(`Predicción horaria — ${pred.nombre} (${pred.provincia})`);
+  out.push(`Predicción horaria — ${etiquetaLugar(m)}`);
   out.push(`Elaborada: ${isoConOffset(pred.elaborado, "Europe/Madrid") ?? "—"}`);
   if (dias.length === 0) {
     out.push("");
@@ -298,7 +397,10 @@ export function formatAvisos(ccaa: string, resultado: ResultadoAvisos): string {
 
   const out: string[] = [];
   out.push(`Avisos meteorológicos vigentes — ${ccaa}`);
-  if (elaborado) out.push(`Elaborado: ${elaborado.replace("T", " ").slice(0, 19)}`);
+  // Misma normalización que la salida estructurada: recortar la cadena se comía
+  // la zona horaria, y dejarla cruda hacía que texto y JSON no coincidieran.
+  const elaboradoIso = isoConOffset(elaborado, "Europe/Madrid");
+  if (elaboradoIso) out.push(`Elaborado: ${elaboradoIso}`);
   const desglose = NIVELES_ORDEN.filter((n) => porNivel[n] > 0)
     .map((n) => `${porNivel[n]} ${n}`)
     .join(", ");
@@ -374,12 +476,12 @@ export function formatObservacionMunicipio(
       .join("\n");
     return (
       `Ninguna de las ${candidatas.length} estaciones más cercanas a ` +
-      `${m.nombreNatural} (${m.provincia}) publica observación ahora mismo.\n${lista}`
+      `${etiquetaLugar(m)} publica observación ahora mismo.\n${lista}`
     );
   }
 
   const out: string[] = [];
-  out.push(`Tiempo actual cerca de ${m.nombreNatural} (${m.provincia})`);
+  out.push(`Tiempo actual cerca de ${etiquetaLugar(m)}`);
 
   // La advertencia va ARRIBA, antes que los números. Abajo se lee como una nota
   // al pie y el modelo ya ha decidido que 23,7 °C es la temperatura del pueblo.
@@ -439,7 +541,7 @@ export function formatAvisosMunicipio(
   } = {},
 ): string {
   const out: string[] = [];
-  const donde = `${m.nombreNatural} (${m.provincia}), ${ccaa.nombre}`;
+  const donde = `${etiquetaLugar(m)}, ${ccaa.nombre}`;
   const nota = opciones.nota ? `\n${opciones.nota}` : "";
 
   if (avisos.length === 0) {
@@ -452,9 +554,8 @@ export function formatAvisosMunicipio(
 
   out.push(`Avisos meteorológicos vigentes — ${donde}`);
   if (opciones.nota) out.push(opciones.nota);
-  if (resultado.elaborado) {
-    out.push(`Elaborado: ${resultado.elaborado.replace("T", " ").slice(0, 19)}`);
-  }
+  const elaboradoIso = isoConOffset(resultado.elaborado, "Europe/Madrid");
+  if (elaboradoIso) out.push(`Elaborado: ${elaboradoIso}`);
 
   const porNivel: Record<NivelAviso, number> = { rojo: 0, naranja: 0, amarillo: 0 };
   for (const a of avisos) porNivel[a.nivel]++;

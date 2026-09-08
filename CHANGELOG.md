@@ -9,6 +9,57 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 _Nada por ahora._
 
+## [0.5.1] - 2026-09-08
+
+Segunda vuelta de la **evaluación a ciegas**, esta vez repitiendo las cinco
+preguntas contra el build de la 0.5.0. Los nueve arreglos anteriores se
+confirmaron contra la API real; aparecieron cuatro fallos nuevos, todos de la
+misma familia que los de la 0.5.0: ninguno es de cálculo, todos están en lo que
+la respuesta *afirma*.
+
+Los campos `periodo` y `diaCompleto` son nuevos en `prediccion_diaria`, pero
+solo describen el arreglo del día en curso: nada de lo que ya existía cambia de
+forma.
+
+### Corregido
+
+- **El día EN CURSO inventaba calma y cielo despejado.** Se presentaba con
+  `Cielo:` vacío y `Viento: en calma`, con `cielo: null` y `velocidad: 0` en el
+  JSON. AEMET publica el agregado `00-24` y los tramos ya pasados **presentes
+  pero vacíos** una vez empezado el día; el dato vivo está en `12-24`. El
+  selector acertaba de estructura y fallaba de contenido, y un `direccion: ""`
+  con `velocidad: 0` es indistinguible de una calma real: se afirmaba que no hay
+  viento cuando lo que pasa es que no se sabe. Ahora se elige el tramo más ancho
+  que de verdad trae dato, la respuesta avisa de que solo cubre parte del día
+  (`periodo` y `diaCompleto`) y la ausencia total se dice `sin dato`.
+
+- **El texto y el JSON podían discrepar.** El resumen del día se calculaba dos
+  veces, una para cada salida. Ahora vive en una única función: cuando divergen,
+  el usuario lee una cosa y el modelo otra, que es exactamente el fallo de
+  `avisosParaPunto` de la 0.5.0 repetido en otro sitio.
+
+- **Las cabeceras de predicción usaban los campos de AEMET en crudo.** AEMET
+  publica el nombre invertido del INE —`"Pinar de El Hierro, El"`— y mete la isla
+  dentro de la provincia —`"Santa Cruz de Tenerife (El Hierro)"`—, así que la
+  cabecera salía con el artículo al final y un paréntesis anidado, contradiciendo
+  a `buscar_municipio` sobre el mismo municipio. Ahora salen del municipio ya
+  resuelto, con la isla en su sitio. `observacion_municipio` y `avisos_municipio`
+  incluyen también la isla: sin ella, la cabecera no distingue cuál de los quince
+  "Valverde" es.
+
+- **La advertencia de `observacion_municipio` saltaba donde no tocaba.** Con una
+  estación **dentro** del municipio: la de Valverde está a 0,8 km y se llama
+  VALVERDE, pero AEMET la etiqueta `"STA. CRUZ DE TENERIFE"` y la comparación
+  textual la daba por otra provincia. Su inventario trae **54 grafías para 52
+  provincias** y se contradice a sí misma (`SANTA CRUZ DE TENERIFE` junto a
+  `STA. CRUZ DE TENERIFE`, `BALEARES` junto a `ILLES BALEARS`); tres no casaban
+  con el nomenclátor del INE. Un aviso que salta sin motivo enseña a ignorarlo,
+  que es justo lo que no queremos del aviso de Ceuta.
+
+- **El `Elaborado:` de los avisos perdía la zona horaria.** Se recortaba a 19
+  caracteres en el texto mientras el JSON sí la conservaba. Ahora ambos pasan por
+  la misma normalización.
+
 ## [0.5.0] - 2026-09-08
 
 Correcciones salidas de una **evaluación a ciegas**: se registró el servidor en
