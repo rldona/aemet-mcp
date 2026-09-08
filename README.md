@@ -94,20 +94,31 @@ En `~/.cursor/mcp.json` (o Settings → MCP → Add):
 
 | Herramienta             | Entrada                                | Devuelve |
 |-------------------------|----------------------------------------|----------|
-| `buscar_municipio`      | `nombre`                               | Municipios coincidentes + código INE + provincia. |
-| `buscar_estacion`       | `consulta`, `limite?`                  | Estaciones de AEMET con idema, provincia, coordenadas y altitud. |
-| `prediccion_diaria`     | `municipio` (nombre o código), `dias?` | Predicción diaria (1-7 días): máx/mín, cielo, prob. lluvia, viento. |
-| `prediccion_horaria`    | `municipio`, `dias?`                   | Predicción hora a hora (hoy y mañana). |
-| `observacion_estacion`  | `estacion?` (idema o nombre)           | Última observación (por defecto Madrid-Retiro). |
-| `observacion_municipio` | `municipio`, `estacion?`               | Tiempo actual en la estación con datos más cercana, con distancia. |
-| `avisos`                | `area` (CCAA)                          | Avisos meteorológicos vigentes (nivel, zona, periodo). |
-| `avisos_municipio`      | `municipio`                            | Avisos que afectan a ese municipio, acotados por geometría. |
+| `buscar_municipio`      | `nombre`                                          | Municipios coincidentes + código INE, provincia e isla. |
+| `buscar_estacion`       | `consulta`, `limite?`                             | Estaciones de AEMET con idema, provincia, coordenadas y altitud. |
+| `prediccion_diaria`     | `municipio` (nombre o código), `dias?`, `desde?`, `hasta?` | Predicción diaria (1-7 días): máx/mín, cielo, prob. lluvia, viento. |
+| `prediccion_horaria`    | `municipio`, `dias?`, `desde?`, `hasta?`          | Predicción hora a hora (hoy y mañana). |
+| `observacion_estacion`  | `estacion?` (idema o nombre)                      | Última observación (por defecto Madrid-Retiro). |
+| `observacion_municipio` | `municipio`, `estacion?`                          | Tiempo actual en la estación con datos más cercana, con distancia y aviso si no representa al municipio. |
+| `avisos`                | `area` (CCAA)                                     | Avisos meteorológicos vigentes (nivel, zona, periodo). |
+| `avisos_municipio`      | `municipio`, `incluirComunidad?`                  | Avisos que afectan a ese municipio, acotados por geometría. |
 
 Los nombres se resuelven a código INE con tolerancia a acentos, mayúsculas y
 artículos: `El Campello`, `Campello` y `Campello, el` (la forma del INE) llevan al
 mismo sitio. Si un nombre es ambiguo (p. ej. "Villanueva" o "La Zarza", que existe
 en Badajoz y en Valladolid), la herramienta devuelve las opciones con su provincia
 y su código para desambiguar.
+
+**Islas.** AEMET solo entiende municipios, pero la gente pregunta por islas. Los
+nombres de las 11 islas de Canarias y Baleares se reconocen y devuelven sus
+municipios: "El Hierro" da Frontera, Valverde y El Pinar, y no "Cueva del Hierro"
+(Cuenca). Cada municipio insular lleva su `isla`, que es lo que permite saber cuál
+de los quince "Valverde" es el de El Hierro.
+
+**Unidades y fechas.** Todo el viento va en **km/h** y la dirección viene en las
+dos formas (rumbo y grados), venga como venga de AEMET. Los instantes salen en ISO
+8601 con offset explícito. Cada respuesta con magnitudes trae un campo `unidades`
+en el propio payload, para no tener que deducirlas del orden de magnitud.
 
 Todas las herramientas declaran `outputSchema` y devuelven `structuredContent`
 además del texto, así que un agente puede consumir los valores tipados —fechas,
@@ -132,12 +143,12 @@ lunes 20/07
 
 ```
 Última observación — MADRID RETIRO (estación 3195)
-Hora (UTC): 2026-07-19T07:00:00+0000
+Hora del dato: 2026-07-19T07:00:00+00:00
 
 Temperatura:  21.7 °C
 Humedad:      41 %
 Precip. (última hora): 0 mm
-Viento:       1.4 m/s del 143°
+Viento:       SE a 5 km/h (143°)
 Presión:      939.2 hPa
 ```
 
@@ -182,6 +193,7 @@ import {
   resolverArea,
   obtenerAvisos,
   formatDiaria,
+  seleccionarDias,
   type PrediccionDiariaMunicipio,
 } from "@rldona/aemet-mcp";
 
@@ -197,7 +209,7 @@ const [pred] = await client.fetchJson<PrediccionDiariaMunicipio[]>(
 console.log(pred.prediccion.dia[0]?.temperatura); // { maxima, minima, dato, ... }
 
 // (opcional) texto legible ya formateado
-console.log(formatDiaria(pred, 3));
+console.log(formatDiaria(pred, seleccionarDias(pred.prediccion.dia, { max: 3 })));
 
 // 3) Avisos vigentes de una CCAA (descomprime el tar.gz y parsea el CAP por ti)
 const andalucia = resolverArea("Andalucía"); // { codigo: "61", nombre: "Andalucía" }
@@ -211,9 +223,11 @@ const { avisos } = await obtenerAvisos(client, andalucia.codigo);
 | Cliente | `AemetClient`, `TTL`, `AemetError`, `describeEstado`, `TtlCache` |
 | Encoding | `reparaMojibake`, `reparaProfundo` |
 | Municipios | `resolverMunicipio`, `buscarMunicipios`, `municipioPorCodigo`, `esCodigoINE`, `normalize`, `totalMunicipios` |
+| Islas | `resolverIsla`, `islaDeMunicipio`, `islas`, `municipiosDeIsla`, `municipiosDeProvincia` |
+| Unidades | `msAKmh`, `rumboDesdeGrados`, `gradosDesdeRumbo`, `vientoDeObservacion`, `vientoDePrediccion`, `isoConOffset` |
 | Áreas / avisos | `AREAS`, `resolverArea`, `areaParaMunicipio`, `obtenerAvisos`, `extraerAvisos`, `parseCapAlert`, `claveAviso` |
 | Estaciones | `resolverEstacion`, `pareceIdema` |
-| Formateadores | `formatDiaria`, `formatHoraria`, `formatObservacion`, `formatAvisos`, `formatMunicipios` |
+| Formateadores | `formatDiaria`, `formatHoraria`, `formatObservacion`, `formatAvisos`, `formatMunicipios`, `seleccionarDias` |
 | Bajo nivel | `untar`, `readOctal`, `validarUrlDatos`, `AEMET_HOSTS` |
 | Tipos | `PrediccionDiariaMunicipio`, `PrediccionHorariaMunicipio`, `Observacion`, `Municipio`, `Aviso`, `NivelAviso`, `ResultadoAvisos`, … |
 

@@ -1,6 +1,10 @@
 import type { Municipio } from "./types.js";
 import { provinciaPorCodigo } from "./provincias.js";
+import { islaDeMunicipio, resolverIsla, type Isla } from "./islas.js";
+import { normalize } from "./texto.js";
 import municipiosData from "../data/municipios.json" with { type: "json" };
+
+export { normalize };
 
 /** Forma cruda del dataset: solo código y nombre del nomenclátor del INE. */
 interface MunicipioCrudo {
@@ -8,16 +12,7 @@ interface MunicipioCrudo {
   nombre: string;
 }
 
-/** Normaliza para match tolerante: minúsculas, sin acentos, sin puntuación. */
-export function normalize(s: string): string {
-  return s
-    .normalize("NFD")
-    .replace(/\p{M}/gu, "") // quita diacríticos combinantes (acentos, tildes)
-    .toLowerCase()
-    .replace(/[^a-z0-9ñ ]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
+
 
 /**
  * Artículos que el INE pospone tras coma. Extraídos del propio dataset, no de
@@ -97,7 +92,7 @@ export function variantesNombre(nombre: string): {
   return { principales: [...principales], secundarias: [...secundarias] };
 }
 
-/** Añade provincia y nombre natural, ambos derivables del dataset crudo. */
+/** Añade provincia, nombre natural e isla, todos derivables del dataset crudo. */
 function enriquecer(m: MunicipioCrudo): Municipio {
   return {
     codigo: m.codigo,
@@ -106,6 +101,7 @@ function enriquecer(m: MunicipioCrudo): Municipio {
     // Todos los códigos del dataset tienen provincia conocida (comprobado en
     // test); el fallback evita que un código futuro rompa la carga del módulo.
     provincia: provinciaPorCodigo(m.codigo) ?? "—",
+    isla: islaDeMunicipio(m.codigo)?.nombre,
   };
 }
 
@@ -166,11 +162,37 @@ export function buscarMunicipios(nombre: string, limit = 15): Municipio[] {
     else if (e.todas.some((v) => v.includes(q))) contiene.push(e.m);
   }
 
-  const porNombre = (a: Municipio, b: Municipio) =>
-    a.nombreNatural.localeCompare(b.nombreNatural, "es");
   for (const grupo of [exacta, exactaSinArticulo, prefijo, contiene]) grupo.sort(porNombre);
 
-  return [...exacta, ...exactaSinArticulo, ...prefijo, ...contiene].slice(0, limit);
+  // Si lo buscado es una isla, sus municipios son lo más relevante que hay,
+  // aunque su nombre no contenga el de la isla: "El Hierro" no aparece en
+  // "Frontera" ni en "Valverde", y sin esto la búsqueda los perdía.
+  const isla = resolverIsla(nombre);
+  const deIsla = isla ? municipiosDeIsla(isla) : [];
+
+  const vistos = new Set<string>();
+  const salida: Municipio[] = [];
+  for (const m of [...exacta, ...deIsla, ...exactaSinArticulo, ...prefijo, ...contiene]) {
+    if (vistos.has(m.codigo)) continue;
+    vistos.add(m.codigo);
+    salida.push(m);
+    if (salida.length >= limit) break;
+  }
+  return salida;
+}
+
+const porNombre = (a: Municipio, b: Municipio) =>
+  a.nombreNatural.localeCompare(b.nombreNatural, "es");
+
+/** Municipios de una provincia por su código de 2 dígitos. */
+export function municipiosDeProvincia(codigoProvincia: string): Municipio[] {
+  const p = codigoProvincia.trim().slice(0, 2);
+  return MUNICIPIOS.filter((m) => m.codigo.startsWith(p));
+}
+
+/** Municipios de una isla, en orden alfabético. */
+export function municipiosDeIsla(isla: Isla): Municipio[] {
+  return MUNICIPIOS.filter((m) => m.isla === isla.nombre).sort(porNombre);
 }
 
 /**
@@ -206,6 +228,17 @@ export function resolverMunicipio(entrada: string): Municipio {
   if (sinArticulo.length === 1) return sinArticulo[0]!;
   if (sinArticulo.length > 1) throw ambiguo(raw, sinArticulo);
 
+  // Una isla no es un municipio, pero es lo que escribe la gente ("El Hierro",
+  // "Menorca"). Sin esta rama, la búsqueda por subcadena devolvía un menú
+  // engañoso: para "El Hierro" salía "Cueva del Hierro" (Cuenca) y faltaban dos
+  // de los tres municipios de la isla.
+  const isla = resolverIsla(raw);
+  if (isla) {
+    const deIsla = municipiosDeIsla(isla);
+    if (deIsla.length === 1) return deIsla[0]!;
+    if (deIsla.length > 1) throw esUnaIsla(raw, isla, deIsla);
+  }
+
   const candidatos = buscarMunicipios(raw, 10);
   if (candidatos.length === 0) {
     throw new Error(
@@ -219,7 +252,30 @@ export function resolverMunicipio(entrada: string): Municipio {
 
 /** Etiqueta de un municipio para listados y mensajes: nombre, provincia y código. */
 export function etiquetaMunicipio(m: Municipio): string {
-  return `${m.nombreNatural} (${m.provincia}) — código INE ${m.codigo}`;
+  const donde = m.isla ? `${m.provincia}, ${m.isla}` : m.provincia;
+  return `${m.nombreNatural} (${donde}) — código INE ${m.codigo}`;
+}
+
+/**
+ * Error para un nombre de isla: dice que lo es y enumera sus municipios, que es
+ * la información que hace falta para volver a llamar con sentido.
+ */
+function esUnaIsla(entrada: string, isla: Isla, municipios: Municipio[]): Error {
+  const MAX = 12;
+  const lista = municipios
+    .slice(0, MAX)
+    .map((m) => `  - ${etiquetaMunicipio(m)}`)
+    .join("\n");
+  const resto =
+    municipios.length > MAX
+      ? `\n  … y ${municipios.length - MAX} municipios más (usa buscar_municipio para verlos).`
+      : "";
+  return new Error(
+    `"${entrada}" es una ISLA, no un municipio, y AEMET publica sus datos por ` +
+      `municipio. ${isla.nombre} tiene ${municipios.length} municipios:\n${lista}${resto}\n` +
+      `Vuelve a llamar con el código INE de uno. Para cubrir la isla entera hacen ` +
+      `falta varias llamadas: elige los que representen las zonas que interesen.`,
+  );
 }
 
 function ambiguo(entrada: string, opciones: Municipio[]): Error {

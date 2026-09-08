@@ -161,7 +161,7 @@ try {
 | `MISSING_API_KEY` | No hay `apiKey` | — |
 | `UNAUTHORIZED` | Key inválida | 401 |
 | `NOT_FOUND` | Sin datos para el recurso | 404 |
-| `RATE_LIMITED` | Límite superado (tras reintentos) | 429 |
+| `RATE_LIMITED` | Límite superado (tras reintentos). Trae `retryAfterMs` si AEMET lo indicó | 429 |
 | `UPSTREAM` | Otro estado / 5xx persistente | var. |
 | `NETWORK` | Fallo de red tras reintentos | — |
 | `TIMEOUT` | Sin respuesta en `timeoutMs`, tras reintentos | — |
@@ -186,20 +186,59 @@ buscarMunicipios(nombre: string, limit = 15): Municipio[]
 // Coincidencias ordenadas: exacta > empieza-por > contiene.
 
 municipioPorCodigo(codigo: string): Municipio | undefined
+municipiosDeProvincia(codigoProvincia: string): Municipio[]
 esCodigoINE(s: string): boolean          // ¿5 dígitos?
 normalize(s: string): string             // minúsculas, sin acentos (para match propio)
 totalMunicipios(): number
 ```
 
 ```ts
-type Municipio = { codigo: string; nombre: string };
+type Municipio = {
+  codigo: string;        // INE, 5 dígitos
+  nombre: string;        // forma del INE: "Campello, el"
+  nombreNatural: string; // "el Campello"
+  provincia: string;
+  isla?: string;         // solo Canarias y Baleares
+};
 ```
 
 Ejemplo de autocompletado (endpoint `/api/municipios?q=`):
 
 ```ts
-const opciones = buscarMunicipios(q, 10); // [{ codigo, nombre }, ...]
+const opciones = buscarMunicipios(q, 10); // [{ codigo, nombre, provincia, isla }, ...]
 ```
+
+### Islas
+
+El INE no tiene concepto de isla y AEMET solo publica por municipio, pero la gente
+pregunta por islas. Tabla estática de las 11 de Canarias y Baleares, sin red:
+
+```ts
+resolverIsla(entrada: string): Isla | undefined   // "El Hierro", "Ibiza", "gomera"
+islaDeMunicipio(codigo: string): Isla | undefined // undefined en la península
+municipiosDeIsla(isla: Isla): Municipio[]
+islas(): readonly Isla[]
+```
+
+`resolverMunicipio` y `buscarMunicipios` la usan solos: un nombre de isla devuelve
+sus municipios en vez de coincidencias por subcadena. Ojo con `"Palma"`, que es la
+ciudad de Mallorca y **no** la isla de La Palma; para la isla, `"La Palma"`.
+
+### Unidades y fechas
+
+```ts
+msAKmh(ms: number): number
+rumboDesdeGrados(g: number | null): Rumbo | null   // 92 -> "E"
+gradosDesdeRumbo(r: string | null): number | null  // "SO" -> 225; "C" (calma) -> null
+vientoDeObservacion(grados, velocidadMs): VientoNormalizado
+vientoDePrediccion(rumbo, velocidadKmh): VientoNormalizado
+
+isoConOffset(valor, "UTC" | "Europe/Madrid"): string | null
+```
+
+`isoConOffset` uniforma las cuatro convenciones de fecha que mezcla AEMET (sin
+zona, `+0000`, `-00:00`, `+02:00`) a ISO 8601 con offset. Solo pone offset a una
+fecha desnuda si se le dice en qué zona está: no adivina.
 
 ---
 
@@ -280,8 +319,23 @@ const registros = await client.fetchJson<Observacion[]>(
 const ultimo = registros[registros.length - 1]; // el más reciente
 ```
 
-`Observacion` incluye: `idema`, `ubi`, `fint`, `ta` (temp °C), `hr` (humedad %),
-`prec` (mm), `vv` (viento m/s), `dv` (dirección °), `pres` (hPa).
+`Observacion` es la forma **cruda** de AEMET: `idema`, `ubi`, `fint`, `ta` (temp
+°C), `hr` (humedad %), `prec` (mm), `vv` (viento **m/s**), `dv` (dirección °),
+`pres` (hPa). Las herramientas MCP la normalizan antes de servirla (viento en km/h,
+fechas con offset); si consumes la librería directamente, `vientoDeObservacion` e
+`isoConOffset` hacen esa misma conversión.
+
+### Estaciones cercanas
+
+```ts
+estacionesCercanas(client, punto, limite = 5): Promise<Array<EstacionResuelta & { distanciaKm: number }>>
+distanciaKm(a, b): number   // haversine
+```
+
+Muchas estaciones del inventario son solo climatológicas y no publican observación:
+hay que probar en orden y quedarse con la primera que responda. Y conviene mirar la
+distancia antes de presentar el dato como si fuera del municipio — la más cercana
+con datos a Ceuta está en Cádiz, a 29,7 km.
 
 ---
 
@@ -306,12 +360,26 @@ Convierten las respuestas en **texto legible** (resumen + datos), como hace el
 servidor MCP. Útiles si quieres el mismo formato en tu backend.
 
 ```ts
-formatDiaria(pred: PrediccionDiariaMunicipio, maxDias: number): string
-formatHoraria(pred: PrediccionHorariaMunicipio, maxDias: number): string
+formatDiaria(pred: PrediccionDiariaMunicipio, dias: DiaDiaria[]): string
+formatHoraria(pred: PrediccionHorariaMunicipio, dias: DiaHoraria[]): string
 formatObservacion(registros: Observacion[], estacionNombre?: string): string
 formatAvisos(ccaa: string, resultado: ResultadoAvisos): string
-formatMunicipios(query: string, resultados: Municipio[]): string
+formatMunicipios(query: string, resultados: Municipio[], isla?: string): string
+
+seleccionarDias<T extends { fecha: string }>(
+  dias: T[],
+  opciones?: { max?: number; desde?: string; hasta?: string },
+): T[]
 ```
+
+> **Cambio en 0.5.0**: `formatDiaria` y `formatHoraria` reciben los días ya
+> seleccionados en vez de un número máximo, para que el texto y los datos
+> estructurados no puedan divergir. `seleccionarDias` construye el argumento:
+>
+> ```ts
+> formatDiaria(pred, seleccionarDias(pred.prediccion.dia, { max: 3 }));
+> formatDiaria(pred, seleccionarDias(pred.prediccion.dia, { desde: "2026-09-12", hasta: "2026-09-13" }));
+> ```
 
 ---
 

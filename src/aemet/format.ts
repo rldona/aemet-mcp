@@ -2,6 +2,8 @@
 // datos), no el JSON crudo. Acceso defensivo porque AEMET omite campos sin dato.
 
 import type {
+  DiaDiaria,
+  DiaHoraria,
   Municipio,
   Observacion,
   PrediccionDiariaMunicipio,
@@ -11,6 +13,8 @@ import type {
 import type { Aviso, NivelAviso, ResultadoAvisos } from "./avisos.js";
 import { etiquetaMunicipio } from "./municipios.js";
 import type { EstacionResuelta } from "./estaciones.js";
+import { isoConOffset } from "./fechas.js";
+import { textoViento, vientoDeObservacion, vientoDePrediccion } from "./viento.js";
 
 /**
  * Elige el elemento con `periodo === target` o, en su defecto, el primero.
@@ -60,6 +64,24 @@ export function probPrecipitacionDia(
   return (mejor ?? arr[0]!).value;
 }
 
+/**
+ * Acota los días de una predicción por número y por rango de fechas.
+ *
+ * El rango existe porque sin él no había forma de pedir "este fin de semana":
+ * había que traerse los siete días y descartar cinco, gastando contexto y
+ * dejando al modelo la aritmética de calendario.
+ */
+export function seleccionarDias<T extends { fecha: string }>(
+  dias: T[],
+  opciones: { max?: number; desde?: string; hasta?: string } = {},
+): T[] {
+  const { max, desde, hasta } = opciones;
+  let out = dias;
+  if (desde) out = out.filter((d) => d.fecha.slice(0, 10) >= desde);
+  if (hasta) out = out.filter((d) => d.fecha.slice(0, 10) <= hasta);
+  return max === undefined ? out : out.slice(0, max);
+}
+
 const DIAS_SEMANA = ["domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado"];
 
 function fechaLegible(iso: string): string {
@@ -76,11 +98,22 @@ function fechaLegible(iso: string): string {
 // buscar_municipio
 // ---------------------------------------------------------------------------
 
-export function formatMunicipios(query: string, resultados: Municipio[]): string {
+export function formatMunicipios(
+  query: string,
+  resultados: Municipio[],
+  isla?: string,
+): string {
   if (resultados.length === 0) {
     return `No se encontró ningún municipio que coincida con "${query}".`;
   }
   const lineas = resultados.map((m) => `• ${etiquetaMunicipio(m)}`);
+  if (isla) {
+    return [
+      `"${query}" es una isla (${isla}), no un municipio. Sus ${resultados.length} ` +
+        `municipios, que es lo que entiende AEMET:`,
+      ...lineas,
+    ].join("\n");
+  }
   const cabecera =
     resultados.length === 1
       ? `1 municipio coincide con "${query}":`
@@ -92,11 +125,18 @@ export function formatMunicipios(query: string, resultados: Municipio[]): string
 // prediccion_diaria
 // ---------------------------------------------------------------------------
 
-export function formatDiaria(pred: PrediccionDiariaMunicipio, maxDias: number): string {
-  const dias = (pred.prediccion?.dia ?? []).slice(0, maxDias);
+export function formatDiaria(
+  pred: PrediccionDiariaMunicipio,
+  dias: DiaDiaria[],
+): string {
   const out: string[] = [];
   out.push(`Predicción diaria — ${pred.nombre} (${pred.provincia})`);
-  out.push(`Elaborada: ${pred.elaborado?.replace("T", " ") ?? "—"}`);
+  out.push(`Elaborada: ${isoConOffset(pred.elaborado, "Europe/Madrid") ?? "—"}`);
+  if (dias.length === 0) {
+    out.push("");
+    out.push("AEMET no publica ningún día dentro del rango pedido.");
+    return out.join("\n");
+  }
   out.push("");
 
   for (const dia of dias) {
@@ -111,10 +151,11 @@ export function formatDiaria(pred: PrediccionDiariaMunicipio, maxDias: number): 
       `Prob. precip.: ${prob !== undefined && prob !== "" ? `${prob}%` : "—"}`,
     ];
     if (viento?.velocidad !== undefined) {
-      let v = `Viento: ${viento.direccion ?? ""} ${viento.velocidad} km/h`.trim();
+      const v = vientoDePrediccion(viento.direccion, viento.velocidad);
+      let linea = `Viento: ${textoViento(v)}`;
       const racha = pickPeriodo(dia.rachaMax)?.value;
-      if (racha) v += ` (racha ${racha} km/h)`;
-      partes.push(v);
+      if (racha) linea += ` (racha ${racha} km/h)`;
+      partes.push(linea);
     }
     const hr = dia.humedadRelativa;
     if (hr?.maxima !== undefined || hr?.minima !== undefined) {
@@ -131,11 +172,18 @@ export function formatDiaria(pred: PrediccionDiariaMunicipio, maxDias: number): 
 // prediccion_horaria
 // ---------------------------------------------------------------------------
 
-export function formatHoraria(pred: PrediccionHorariaMunicipio, maxDias: number): string {
-  const dias = (pred.prediccion?.dia ?? []).slice(0, maxDias);
+export function formatHoraria(
+  pred: PrediccionHorariaMunicipio,
+  dias: DiaHoraria[],
+): string {
   const out: string[] = [];
   out.push(`Predicción horaria — ${pred.nombre} (${pred.provincia})`);
-  out.push(`Elaborada: ${pred.elaborado?.replace("T", " ") ?? "—"}`);
+  out.push(`Elaborada: ${isoConOffset(pred.elaborado, "Europe/Madrid") ?? "—"}`);
+  if (dias.length === 0) {
+    out.push("");
+    out.push("AEMET no publica ningún día dentro del rango pedido.");
+    return out.join("\n");
+  }
 
   for (const dia of dias) {
     out.push("");
@@ -160,7 +208,9 @@ export function formatHoraria(pred: PrediccionHorariaMunicipio, maxDias: number)
       const cols = [`  ${h.padStart(2, "0")}:00`, `${t.value ?? "—"}°C`];
       if (cielo) cols.push(cielo);
       if (precip !== undefined && precip !== "" && precip !== "0") cols.push(`lluvia ${precip} mm`);
-      if (viento) cols.push(`viento ${viento.dir} ${viento.vel} km/h`);
+      if (viento) {
+        cols.push(`viento ${textoViento(vientoDePrediccion(viento.dir, Number(viento.vel)))}`);
+      }
       out.push(cols.join("  ·  "));
     }
   }
@@ -209,13 +259,9 @@ export function formatObservacion(
   const nombre = estacionNombre ?? o.ubi ?? o.idema;
   const out: string[] = [];
   out.push(`Última observación — ${nombre} (estación ${o.idema})`);
-  out.push(`Hora (UTC): ${o.fint ?? "—"}`);
+  out.push(`Hora del dato: ${isoConOffset(o.fint, "UTC") ?? "—"}`);
   out.push("");
-  out.push(`Temperatura:  ${fmtNum(o.ta, "°C")}`);
-  out.push(`Humedad:      ${fmtNum(o.hr, "%")}`);
-  out.push(`Precip. (última hora): ${fmtNum(o.prec, "mm")}`);
-  out.push(`Viento:       ${fmtNum(o.vv, "m/s")}${o.dv !== undefined ? ` del ${o.dv}°` : ""}`);
-  out.push(`Presión:      ${fmtNum(o.pres, "hPa")}`);
+  out.push(...lineasObservacion(o));
   return out.join("\n");
 }
 
@@ -320,6 +366,7 @@ export function formatObservacionMunicipio(
   elegida: (EstacionResuelta & { distanciaKm: number }) | undefined,
   observacion: Observacion | undefined,
   candidatas: Array<EstacionResuelta & { distanciaKm: number }>,
+  advertencia?: string | null,
 ): string {
   if (!elegida || !observacion) {
     const lista = candidatas
@@ -333,20 +380,23 @@ export function formatObservacionMunicipio(
 
   const out: string[] = [];
   out.push(`Tiempo actual cerca de ${m.nombreNatural} (${m.provincia})`);
+
+  // La advertencia va ARRIBA, antes que los números. Abajo se lee como una nota
+  // al pie y el modelo ya ha decidido que 23,7 °C es la temperatura del pueblo.
+  if (advertencia) {
+    out.push("");
+    out.push(`⚠️  ${advertencia}`);
+  }
+
+  out.push("");
   out.push(
-    `Estación: ${elegida.nombre} (idema ${elegida.idema}), a ` +
+    `Estación: ${elegida.nombre} (idema ${elegida.idema})` +
+      `${elegida.provincia ? `, ${elegida.provincia}` : ""}, a ` +
       `${elegida.distanciaKm.toFixed(1)} km del municipio`,
   );
-  out.push(`Hora del dato (UTC): ${observacion.fint ?? "—"}`);
+  out.push(`Hora del dato: ${isoConOffset(observacion.fint, "UTC") ?? "—"}`);
   out.push("");
-  out.push(`Temperatura:  ${fmtNum(observacion.ta, "°C")}`);
-  out.push(`Humedad:      ${fmtNum(observacion.hr, "%")}`);
-  out.push(`Precip. (última hora): ${fmtNum(observacion.prec, "mm")}`);
-  out.push(
-    `Viento:       ${fmtNum(observacion.vv, "m/s")}` +
-      (observacion.dv !== undefined ? ` del ${observacion.dv}°` : ""),
-  );
-  out.push(`Presión:      ${fmtNum(observacion.pres, "hPa")}`);
+  out.push(...lineasObservacion(observacion));
 
   const otras = candidatas.filter((c) => c.idema !== elegida.idema);
   if (otras.length > 0) {
@@ -359,6 +409,18 @@ export function formatObservacionMunicipio(
   return out.join("\n");
 }
 
+/** Bloque de magnitudes común a las dos observaciones, ya en unidades únicas. */
+function lineasObservacion(o: Observacion): string[] {
+  const viento = vientoDeObservacion(o.dv ?? null, o.vv ?? null);
+  return [
+    `Temperatura:  ${fmtNum(o.ta, "°C")}`,
+    `Humedad:      ${fmtNum(o.hr, "%")}`,
+    `Precip. (última hora): ${fmtNum(o.prec, "mm")}`,
+    `Viento:       ${textoViento(viento, true)}`,
+    `Presión:      ${fmtNum(o.pres, "hPa")}`,
+  ];
+}
+
 // ---------------------------------------------------------------------------
 // avisos_municipio
 // ---------------------------------------------------------------------------
@@ -369,19 +431,27 @@ export function formatAvisosMunicipio(
   resultado: ResultadoAvisos,
   avisos: Aviso[],
   alcance: "municipio" | "comunidad",
+  opciones: {
+    nota?: string | null;
+    incluirComunidad?: boolean;
+    /** Avisos de la CCAA que NO cubren el municipio, ya calculados. */
+    fuera?: Aviso[];
+  } = {},
 ): string {
   const out: string[] = [];
   const donde = `${m.nombreNatural} (${m.provincia}), ${ccaa.nombre}`;
+  const nota = opciones.nota ? `\n${opciones.nota}` : "";
 
   if (avisos.length === 0) {
     const detalle =
       resultado.avisos.length > 0
         ? ` Hay ${resultado.avisos.length} avisos en ${ccaa.nombre}, pero ninguno cubre el municipio.`
         : "";
-    return `Sin avisos meteorológicos vigentes en ${donde}.${detalle}`;
+    return `Sin avisos meteorológicos vigentes en ${donde}.${detalle}${nota}`;
   }
 
   out.push(`Avisos meteorológicos vigentes — ${donde}`);
+  if (opciones.nota) out.push(opciones.nota);
   if (resultado.elaborado) {
     out.push(`Elaborado: ${resultado.elaborado.replace("T", " ").slice(0, 19)}`);
   }
@@ -405,6 +475,26 @@ export function formatAvisosMunicipio(
   );
 
   out.push(...cuerpoAvisos(avisos));
+
+  // El resto de la comunidad: o se enseña, o se dice cómo pedirlo. Decir solo
+  // "hay 3 en la comunidad" y mostrar 1 obligaba a una segunda llamada.
+  const fuera = opciones.fuera ?? [];
+  const restantes = resultado.avisos.length - avisos.length;
+  if (restantes > 0) {
+    out.push("");
+    if (opciones.incluirComunidad) {
+      out.push(`Los otros ${restantes} avisos de ${ccaa.nombre}, que no cubren el municipio:`);
+      for (const a of fuera.slice(0, MAX_AVISOS_LISTADOS)) {
+        out.push(`  · ${NIVEL_EMOJI[a.nivel]} ${lineaAviso(a)}`);
+      }
+    } else {
+      out.push(
+        `Hay ${restantes} avisos más en ${ccaa.nombre} que no cubren este ` +
+          `municipio. Si necesitas verlos, repite con incluirComunidad: true.`,
+      );
+    }
+  }
+
   return out.join("\n");
 }
 

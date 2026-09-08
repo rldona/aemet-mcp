@@ -139,6 +139,41 @@ No entran en planificación hasta que el núcleo esté estabilizado.
 | A33 | Incorporar predicción marítima, de montaña y playas | XL | 17 |
 | A34 | Exponer radar e imágenes mediante recursos MCP | XL | 21 |
 
+## Hallazgos de la evaluación a ciegas (v0.5.0)
+
+Origen distinto al del resto del backlog: en lugar de auditar el código, se
+registró el servidor en un cliente MCP y **otra sesión, sin acceso al repositorio
+ni a este documento**, resolvió cinco preguntas reales anotando dónde la
+herramienta la hacía tropezar.
+
+Vale la pena separarlos porque ninguno se parece a los anteriores. No son fallos
+de cálculo —los tests con mocks pasaban— sino de lo que la respuesta *dice*: dos
+unidades para la misma magnitud, una estación de otra provincia servida sin
+distintivo, un `null` que tanto podía ser "no hay dato" como "esto se ha roto". El
+consumidor de estas herramientas es un modelo que lee el JSON, y ninguna suite de
+tests unitarios pregunta si el JSON se entiende.
+
+| ID | Ticket | Talla | Estado |
+|----|--------|-------|--------|
+| B1 | `observacion_municipio` marca cuándo el dato no representa al municipio (`advertencia`, `representaAlMunicipio`) | M | ✅ |
+| B2 | Forzar una estación sin datos da error explícito en vez de nulos silenciosos | S | ✅ |
+| B3 | Las candidatas distinguen comprobadas de no consultadas (`estado`) | S | ✅ |
+| B4 | Tabla de islas de Canarias y Baleares; los nombres de isla resuelven a sus municipios | M | ✅ |
+| B5 | Una sola unidad de viento (km/h) y las dos formas de dirección en todas las salidas | M | ✅ |
+| B6 | Una sola convención de fecha: ISO 8601 con offset explícito | M | ✅ |
+| B7 | Campo `unidades` dentro del payload, no solo en el `outputSchema` | S | ✅ |
+| B8 | `desde`/`hasta` en las predicciones | S | ✅ |
+| B9 | `incluirComunidad` en `avisos_municipio`, para no forzar una segunda llamada | S | ✅ |
+| B10 | Nota de desambiguación para nombres compartidos ("Madrid" municipio vs. comunidad) | S | ✅ |
+| B11 | El error de cuota explica que ya se ha reintentado y traslada `Retry-After` si lo hay | S | ✅ |
+
+**Lo que no se ha hecho, y por qué.** El informe pedía que `candidatas` dijera
+cuáles tienen dato disponible. Saberlo de todas exige consultarlas todas: cinco
+peticiones por consulta en una API con cuota, para rellenar un campo informativo.
+Se ha resuelto marcando solo lo que se comprueba de verdad, que es gratis y no
+miente. El coste de la cuota es justamente lo que el propio informe señalaba como
+el problema dominante.
+
 ## Aplazados
 
 No son malas ideas: son coste fijo que hoy no compra garantías proporcionales en
@@ -162,7 +197,8 @@ condición de reapertura para no perderlas ni arrastrarlas.
 | **v0.3.0 — Packaging y correcciones** | 9-14 | Cerrar de verdad el consumo del paquete y las correcciones pendientes. |
 | **v0.4.0 — Geografía y MCP estructurado** | 15-20 | Mejorar búsquedas, desambiguación y consumo por agentes. |
 | **v0.4.x — Calidad interna** | 21-26 | Aumentar garantías, mantenibilidad y operabilidad, sin la lista completa de la auditoría original. |
-| **v0.5.0+ — Nuevas capacidades** | A30, A32-A34 | Ampliar el producto una vez estabilizado el núcleo. |
+| **v0.5.0 — Legibilidad de las respuestas** | B1-B11 | Que lo que devuelve el servidor se entienda sin contexto: unidades, fechas, islas y avisos de lo que el dato no es. Salidos de una evaluación a ciegas, no de la auditoría. |
+| **v0.6.0+ — Nuevas capacidades** | A30, A32-A34 | Ampliar el producto una vez estabilizado el núcleo. |
 
 ## Criterio de ejecución
 

@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { resolverArea, areaParaMunicipio, AREAS } from "../aemet/areas.js";
 import { resolverMunicipio } from "../aemet/municipios.js";
+import { notaNombreCompartido } from "../aemet/homonimos.js";
 import { coordenadasMunicipio } from "../aemet/geo.js";
 import { avisosParaPunto, obtenerAvisos } from "../aemet/avisos.js";
 import { formatAvisos, formatAvisosMunicipio } from "../aemet/format.js";
@@ -61,21 +62,34 @@ export function registerAvisosMunicipio(
         "Resuelve la comunidad autónoma sola y, cuando AEMET publica la geometría de " +
         "las zonas de aviso, filtra por el punto del municipio en lugar de devolver " +
         "los de toda la comunidad. Preferible a `avisos` cuando se pregunta por un " +
-        "pueblo o ciudad concretos.",
+        "pueblo o ciudad concretos. Si además hace falta el panorama regional, pide " +
+        "`incluirComunidad: true` aquí en vez de llamar después a `avisos`.",
       inputSchema: {
         municipio: z
           .string()
           .min(1)
           .describe(
-            "Municipio: nombre ('Granada', 'El Campello') o código INE de 5 dígitos.",
+            "Municipio: nombre ('Granada', 'El Campello') o código INE de 5 dígitos. " +
+              "Ojo con los nombres que son también de comunidad ('Madrid', 'Murcia'): " +
+              "se interpretan como el municipio y la respuesta lo dice en `nota`.",
+          ),
+        incluirComunidad: z
+          .boolean()
+          .optional()
+          .describe(
+            "Devuelve además los avisos del resto de la comunidad. Úsalo cuando " +
+              "interese el contexto regional, y así evitas una segunda llamada a " +
+              "`avisos`. Por defecto false.",
           ),
       },
       outputSchema: salidaAvisosMunicipio,
     },
-    async ({ municipio }) =>
+    async ({ municipio, incluirComunidad }) =>
       runTool(async () => {
         const client = getClient();
         const m = resolverMunicipio(municipio);
+        const nota = notaNombreCompartido(municipio, m);
+        const opciones = { nota, incluirComunidad: incluirComunidad ?? false };
 
         const ccaa = areaParaMunicipio(m.codigo);
         if (!ccaa) {
@@ -91,18 +105,19 @@ export function registerAvisosMunicipio(
         const punto = await coordenadasMunicipio(client, m.codigo);
         if (!punto) {
           return structured(
-            formatAvisosMunicipio(m, ccaa, resultado, resultado.avisos, "comunidad"),
-            aSalidaAvisosMunicipio(m, ccaa, resultado, resultado.avisos, "comunidad"),
+            formatAvisosMunicipio(m, ccaa, resultado, resultado.avisos, "comunidad", opciones),
+            aSalidaAvisosMunicipio(m, ccaa, resultado, resultado.avisos, "comunidad", opciones),
           );
         }
 
-        const { dentro, sinGeometria } = avisosParaPunto(resultado.avisos, punto);
+        const { dentro, sinGeometria, fuera } = avisosParaPunto(resultado.avisos, punto);
         const avisos = [...dentro, ...sinGeometria];
         const alcance = sinGeometria.length > 0 ? "comunidad" : "municipio";
+        const conFuera = { ...opciones, fuera };
 
         return structured(
-          formatAvisosMunicipio(m, ccaa, resultado, avisos, alcance),
-          aSalidaAvisosMunicipio(m, ccaa, resultado, avisos, alcance),
+          formatAvisosMunicipio(m, ccaa, resultado, avisos, alcance, conFuera),
+          aSalidaAvisosMunicipio(m, ccaa, resultado, avisos, alcance, conFuera),
         );
       }),
   );

@@ -263,12 +263,31 @@ describe("avisosParaPunto", () => {
   });
 
   it("descarta el aviso si el punto queda fuera de todas sus zonas", () => {
-    const { dentro, sinGeometria } = avisosParaPunto([aviso()], {
+    const { dentro, sinGeometria, fuera } = avisosParaPunto([aviso()], {
       latitud: 43.0,
       longitud: -8.0,
     });
     expect(dentro).toEqual([]);
     expect(sinGeometria).toEqual([]);
+    expect(fuera).toHaveLength(1);
+  });
+
+  it("un aviso que cubre el punto NO aparece también en `fuera`", () => {
+    // Los de `dentro` son copias acotadas a las zonas que cubren el punto, así
+    // que restarlos por identidad de la lista original no funciona: el mismo
+    // aviso salía a la vez como "te afecta" y como "no te afecta".
+    const { dentro, fuera } = avisosParaPunto([aviso()], { latitud: 37.5, longitud: -3.5 });
+    expect(dentro).toHaveLength(1);
+    expect(fuera).toEqual([]);
+  });
+
+  it("reparte cada aviso en exactamente un grupo", () => {
+    const avisos = [aviso(), aviso()];
+    const { dentro, sinGeometria, fuera } = avisosParaPunto(avisos, {
+      latitud: 37.5,
+      longitud: -3.5,
+    });
+    expect(dentro.length + sinGeometria.length + fuera.length).toBe(avisos.length);
   });
 
   it("no descarta un aviso que no se puede evaluar por falta de geometría", () => {

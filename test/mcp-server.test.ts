@@ -90,13 +90,19 @@ describe("servidor MCP (stdio)", () => {
     const datos = res.structuredContent as {
       consulta: string;
       total: number;
-      municipios: Array<{ codigo: string; nombre: string; provincia: string }>;
+      municipios: Array<{
+        codigo: string;
+        nombre: string;
+        provincia: string;
+        isla: string | null;
+      }>;
     };
     expect(datos.consulta).toBe("El Campello");
     expect(datos.municipios[0]).toMatchObject({
       codigo: "03050",
       nombre: "el Campello",
       provincia: "Alicante",
+      isla: null,
     });
   });
 
@@ -126,10 +132,85 @@ describe("servidor MCP (stdio)", () => {
         }).properties ?? {},
       ).sort();
 
-    expect(props("buscar_municipio")).toEqual(["consulta", "municipios", "total"]);
-    expect(props("prediccion_diaria")).toEqual(["dias", "elaborado", "municipio"]);
+    expect(props("buscar_municipio")).toEqual(["consulta", "isla", "municipios", "total"]);
+    expect(props("prediccion_diaria")).toEqual([
+      "dias",
+      "elaborado",
+      "municipio",
+      "unidades",
+    ]);
     expect(props("avisos_municipio")).toContain("alcance");
     expect(props("observacion_municipio")).toContain("candidatas");
+  });
+
+  it("las respuestas con magnitudes declaran sus unidades en el payload", async () => {
+    // El schema documenta las unidades, pero en una sesión real el modelo ve el
+    // JSON y no el schema: un `velocidad: 9` sin unidad no es interpretable.
+    const { tools } = await client.listTools();
+    for (const nombre of [
+      "prediccion_diaria",
+      "prediccion_horaria",
+      "observacion_estacion",
+      "observacion_municipio",
+    ]) {
+      const schema = tools.find((t) => t.name === nombre)!.outputSchema as {
+        properties?: Record<string, unknown>;
+      };
+      expect(Object.keys(schema.properties ?? {}), nombre).toContain("unidades");
+    }
+  });
+
+  it("observacion_municipio promete la señal de que el dato no es del municipio", async () => {
+    // Sin esto, la respuesta de Ceuta (estación de Tarifa, a 29,7 km y en otra
+    // provincia) era indistinguible de una estación dentro del pueblo.
+    const { tools } = await client.listTools();
+    const props = Object.keys(
+      (tools.find((t) => t.name === "observacion_municipio")!.outputSchema as {
+        properties?: Record<string, unknown>;
+      }).properties ?? {},
+    );
+    expect(props).toContain("advertencia");
+    expect(props).toContain("representaAlMunicipio");
+  });
+
+  it("acepta acotar la predicción por rango de fechas", async () => {
+    const { tools } = await client.listTools();
+    const entrada = (nombre: string) =>
+      Object.keys(
+        (tools.find((t) => t.name === nombre)!.inputSchema as {
+          properties?: Record<string, unknown>;
+        }).properties ?? {},
+      );
+    expect(entrada("prediccion_diaria")).toEqual(
+      expect.arrayContaining(["desde", "hasta"]),
+    );
+    expect(entrada("avisos_municipio")).toContain("incluirComunidad");
+  });
+
+  it("una isla se explica como tal en vez de dar coincidencias por subcadena", async () => {
+    // No necesita API key: la resolución del municipio es local.
+    const res = await client.callTool({
+      name: "prediccion_diaria",
+      arguments: { municipio: "El Hierro" },
+    });
+    expect(res.isError).toBe(true);
+    const texto = JSON.stringify(res.content);
+    expect(texto).toContain("ISLA");
+    expect(texto).toContain("Valverde"); // no contiene "Hierro" y antes se perdía
+    expect(texto).not.toContain("Cueva del Hierro"); // ruido de Cuenca
+  });
+
+  it("buscar_municipio devuelve la isla de cada municipio insular", async () => {
+    const res = await client.callTool({
+      name: "buscar_municipio",
+      arguments: { nombre: "Valverde" },
+    });
+    const datos = res.structuredContent as {
+      municipios: Array<{ codigo: string; isla: string | null }>;
+    };
+    // El caso del informe: 15 "Valverde" y ninguna pista de cuál es el de la isla.
+    expect(datos.municipios[0]).toMatchObject({ codigo: "38048", isla: "El Hierro" });
+    expect(datos.municipios.some((m) => m.isla === null)).toBe(true);
   });
 
   it("un argumento del tipo equivocado se rechaza antes de llamar a AEMET", async () => {
