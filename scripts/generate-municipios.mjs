@@ -6,7 +6,8 @@
 // Uso:
 //   node scripts/generate-municipios.mjs [ruta-al-xlsx]
 //
-// Si no se pasa ruta, descarga el diccionario del año configurado en INE_URL.
+// Si no se pasa ruta, descarga el diccionario más reciente que publique el INE
+// (o el de la variable de entorno INE_URL, si se fija).
 // El fichero es un .xlsx (zip OOXML); lo parseamos sin dependencias con `unzip`.
 
 import { execFileSync } from "node:child_process";
@@ -15,8 +16,38 @@ import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const INE_URL =
-  "https://www.ine.es/daco/daco42/codmun/diccionario24.xlsx";
+// El INE publica un diccionario por año en la misma ruta, cambiando solo las dos
+// últimas cifras del año. Se prueba desde el año en curso hacia atrás y se usa el
+// primero que exista, en lugar de dejar una URL fija que se queda vieja en
+// silencio: el dataset llegó a estar dos años desfasado justamente por eso.
+const INE_BASE = "https://www.ine.es/daco/daco42/codmun/diccionario";
+const INE_ANIOS_ATRAS = 4;
+
+/** URL del diccionario más reciente disponible, o la de `INE_URL` si se fija. */
+async function resolverUrlINE() {
+  if (process.env.INE_URL) return process.env.INE_URL;
+
+  const anioActual = new Date().getFullYear();
+  const probados = [];
+  for (let i = 0; i <= INE_ANIOS_ATRAS; i++) {
+    const anio = anioActual - i;
+    const url = `${INE_BASE}${String(anio).slice(-2)}.xlsx`;
+    probados.push(url);
+    try {
+      const res = await fetch(url, { method: "HEAD" });
+      if (res.ok) {
+        console.error(`Diccionario del INE encontrado: ${url}`);
+        return url;
+      }
+    } catch {
+      // Sin red o host caído: se prueba el siguiente año.
+    }
+  }
+  throw new Error(
+    `No se encontró ningún diccionario del INE. Probados:\n  ${probados.join("\n  ")}\n` +
+      `Fija la URL con la variable de entorno INE_URL si la ruta ha cambiado.`,
+  );
+}
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const OUT = join(__dirname, "..", "src", "data", "municipios.json");
@@ -60,14 +91,15 @@ function parseRow(rowXml, shared) {
   return cells;
 }
 
-function main() {
+async function main() {
   const argPath = process.argv[2];
   let xlsxPath = argPath;
 
   if (!xlsxPath) {
+    const urlINE = await resolverUrlINE();
     xlsxPath = join(mkdtempSync(join(tmpdir(), "ine-")), "diccionario.xlsx");
-    console.error(`Descargando diccionario INE desde ${INE_URL} ...`);
-    execFileSync("curl", ["-sSL", "--fail", "-o", xlsxPath, INE_URL], {
+    console.error(`Descargando diccionario INE desde ${urlINE} ...`);
+    execFileSync("curl", ["-sSL", "--fail", "-o", xlsxPath, urlINE], {
       stdio: ["ignore", "ignore", "inherit"],
     });
   }
@@ -124,4 +156,7 @@ function main() {
   console.error(`OK: ${municipios.length} municipios -> ${OUT}`);
 }
 
-main();
+main().catch((err) => {
+  console.error(err.message);
+  process.exit(1);
+});

@@ -6,19 +6,27 @@ on:
   pull_request:
     branches: [main]
 
+# Mínimo imprescindible: CI solo lee el repo. Sin esto hereda los permisos por
+# defecto del repositorio, que pueden incluir escritura.
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        node-version: [18, 20, 22]
+        # 20.19 es el suelo declarado en engines: la primera versión con
+        # require(esm), que es lo que permite consumir el paquete ESM-only
+        # desde CommonJS.
+        node-version: ['20.19', 22, 24]
     name: test (Node ${{ matrix.node-version }})
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Setup Node ${{ matrix.node-version }}
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: ${{ matrix.node-version }}
           cache: npm
@@ -28,8 +36,55 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
+      # El build va ANTES de los tests: el smoke test del servidor MCP arranca
+      # dist/index.js como proceso hijo.
+      - name: Build
+        run: npm run build
+
       - name: Tests (unitarios; los de integración se saltan sin AEMET_API_KEY)
         run: npm test
 
-      - name: Build
-        run: npm run build
+  # Valida el ARTEFACTO, no el árbol de trabajo: empaqueta, instala el tarball en
+  # un proyecto limpio y comprueba resolución ESM/CJS, tipos, binario y arranque
+  # MCP. Va en toda la matriz porque la resolución de módulos cambia entre
+  # versiones de Node, que es justo lo que este job existe para detectar.
+  package:
+    runs-on: ubuntu-latest
+    needs: test # si los tests están rojos, no gastamos minutos empaquetando
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: ['20.19', 22, 24]
+    name: package (Node ${{ matrix.node-version }})
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Setup Node ${{ matrix.node-version }}
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+
+      - run: npm ci
+
+      - name: Validar el paquete empaquetado
+        run: npm run test:pack
+
+  # Falla ante vulnerabilidades ALTAS o CRÍTICAS en dependencias de PRODUCCIÓN.
+  # Las de desarrollo no viajan en el paquete, así que no bloquean el merge.
+  # Criterio y vía de excepción documentados en SECURITY.md.
+  audit:
+    runs-on: ubuntu-latest
+    name: audit (dependencias de producción)
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Auditoría de dependencias de producción
+        run: npm run audit:prod

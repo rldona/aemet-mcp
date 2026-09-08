@@ -11,7 +11,10 @@ backoff, dataset de municipios del INE, áreas CAP por CCAA y parseo de avisos
 (tar + CAP XML).
 
 - **Entry point**: `@rldona/aemet-mcp` → `dist/lib.js` (ESM), tipos en `dist/lib.d.ts`.
-- **Node** ≥ 18. No arranca ningún servidor MCP al importar la librería.
+- **Node** ≥ 20.19. No arranca ningún servidor MCP al importar la librería.
+- **ESM-only**: no se publica build CommonJS. Desde CJS se puede usar `require()`
+  igualmente, porque Node ≥ 20.19 soporta `require(esm)`; en Node 18 solo funciona
+  el `import()` dinámico.
 
 > ⚠️ **Seguridad**: la API key va **siempre en el servidor** (`AEMET_API_KEY`),
 > nunca en el navegador. No expongas la key ni proxies sin control de origen.
@@ -56,11 +59,43 @@ new AemetClient(opts: AemetClientOptions)
 interface AemetClientOptions {
   apiKey: string;              // requerido; si falta -> AemetError("MISSING_API_KEY")
   fetchImpl?: typeof fetch;    // inyectable (tests / fetch personalizado). Def: global
-  maxRetries?: number;         // reintentos ante 429/red/5xx. Def: 3
+  maxRetries?: number;         // presupuesto GLOBAL de reintentos. Def: 3
   backoffBaseMs?: number;      // base del backoff exponencial (ms). Def: 500
   sleep?: (ms: number) => Promise<void>; // inyectable (tests). Def: setTimeout
+  timeoutMs?: number;          // timeout por intento (ms). Def: 15000
+  maxBytes?: number;           // tope por respuesta. Def: 32 MiB
+  allowedHosts?: readonly string[]; // hosts a los que se envía la key. Def: AEMET_HOSTS
+  random?: () => number;       // inyectable (tests): jitter. Def: Math.random
+  logger?: Logger;             // diagnóstico. Def: el del proceso (stderr)
 }
 ```
+
+**`maxRetries` es un presupuesto global por operación**, compartido por los dos
+saltos: `maxRetries: 3` son como mucho 4 peticiones en total, no 4 por salto. Antes
+los bucles anidados se multiplicaban y, con timeouts, una operación podía tardar
+minutos.
+
+**Timeout.** Cada intento lleva `AbortSignal.timeout(timeoutMs)`, que cubre también
+la lectura del cuerpo. Un timeout es reintentable; si se agotan los reintentos, el
+error es `TIMEOUT`.
+
+**Reintentos.** Se reintentan timeouts, cortes de red y `5xx` en ambos saltos. Ante
+un 429 se respeta la cabecera `Retry-After` (segundos o fecha HTTP), acotada a 30 s;
+si no la hay, backoff exponencial con jitter (mitad fija, mitad aleatoria). Los
+errores permanentes (`UNSAFE_URL`, `TOO_LARGE`, 401, 404) no se reintentan.
+
+**Caché.** `TtlCache` deduplica cargas en vuelo: N llamadas simultáneas a la misma
+clave comparten una promesa en lugar de lanzar N peticiones. Importa poco en el
+servidor MCP, donde las llamadas llegan en serie, y mucho al usar el núcleo como
+librería desde un backend con concurrencia. Los errores no se cachean.
+
+**Logging.** `AEMET_MCP_LOG` (`silent`/`error`/`warn`/`info`/`debug`, por defecto
+`warn`) o un `logger` propio. Todo va a `stderr` y nunca incluye credenciales.
+
+**Hosts autorizados.** El segundo salto va a la URL que AEMET devuelve en `datos`.
+Antes de reenviar ahí la cabecera `api_key` se valida que sea HTTPS y de un host de
+`AEMET_HOSTS` (`opendata.aemet.es`, `www.aemet.es`), y no se siguen redirecciones.
+Se puede sustituir la lista con `allowedHosts`.
 
 ### `fetchJson<T>(path, ttlMs?): Promise<T>`
 
@@ -126,10 +161,13 @@ try {
 | `MISSING_API_KEY` | No hay `apiKey` | — |
 | `UNAUTHORIZED` | Key inválida | 401 |
 | `NOT_FOUND` | Sin datos para el recurso | 404 |
-| `RATE_LIMITED` | Límite superado (tras reintentos) | 429 |
+| `RATE_LIMITED` | Límite superado (tras reintentos). Trae `retryAfterMs` si AEMET lo indicó | 429 |
 | `UPSTREAM` | Otro estado / 5xx persistente | var. |
 | `NETWORK` | Fallo de red tras reintentos | — |
-| `PARSE` | Respuesta no parseable | — |
+| `TIMEOUT` | Sin respuesta en `timeoutMs`, tras reintentos | — |
+| `TOO_LARGE` | La respuesta supera `maxBytes` | — |
+| `UNSAFE_URL` | AEMET apuntó a un host/esquema no autorizado, o redirigió | var. |
+| `PARSE` | Respuesta no parseable (incluye tar corrupto o truncado) | — |
 
 `describeEstado(estado, descripcion?): string` — mensaje legible para un código de
 estado de AEMET.
@@ -148,20 +186,59 @@ buscarMunicipios(nombre: string, limit = 15): Municipio[]
 // Coincidencias ordenadas: exacta > empieza-por > contiene.
 
 municipioPorCodigo(codigo: string): Municipio | undefined
+municipiosDeProvincia(codigoProvincia: string): Municipio[]
 esCodigoINE(s: string): boolean          // ¿5 dígitos?
 normalize(s: string): string             // minúsculas, sin acentos (para match propio)
 totalMunicipios(): number
 ```
 
 ```ts
-type Municipio = { codigo: string; nombre: string };
+type Municipio = {
+  codigo: string;        // INE, 5 dígitos
+  nombre: string;        // forma del INE: "Campello, el"
+  nombreNatural: string; // "el Campello"
+  provincia: string;
+  isla?: string;         // solo Canarias y Baleares
+};
 ```
 
 Ejemplo de autocompletado (endpoint `/api/municipios?q=`):
 
 ```ts
-const opciones = buscarMunicipios(q, 10); // [{ codigo, nombre }, ...]
+const opciones = buscarMunicipios(q, 10); // [{ codigo, nombre, provincia, isla }, ...]
 ```
+
+### Islas
+
+El INE no tiene concepto de isla y AEMET solo publica por municipio, pero la gente
+pregunta por islas. Tabla estática de las 11 de Canarias y Baleares, sin red:
+
+```ts
+resolverIsla(entrada: string): Isla | undefined   // "El Hierro", "Ibiza", "gomera"
+islaDeMunicipio(codigo: string): Isla | undefined // undefined en la península
+municipiosDeIsla(isla: Isla): Municipio[]
+islas(): readonly Isla[]
+```
+
+`resolverMunicipio` y `buscarMunicipios` la usan solos: un nombre de isla devuelve
+sus municipios en vez de coincidencias por subcadena. Ojo con `"Palma"`, que es la
+ciudad de Mallorca y **no** la isla de La Palma; para la isla, `"La Palma"`.
+
+### Unidades y fechas
+
+```ts
+msAKmh(ms: number): number
+rumboDesdeGrados(g: number | null): Rumbo | null   // 92 -> "E"
+gradosDesdeRumbo(r: string | null): number | null  // "SO" -> 225; "C" (calma) -> null
+vientoDeObservacion(grados, velocidadMs): VientoNormalizado
+vientoDePrediccion(rumbo, velocidadKmh): VientoNormalizado
+
+isoConOffset(valor, "UTC" | "Europe/Madrid"): string | null
+```
+
+`isoConOffset` uniforma las cuatro convenciones de fecha que mezcla AEMET (sin
+zona, `+0000`, `-00:00`, `+02:00`) a ISO 8601 con offset. Solo pone offset a una
+fecha desnuda si se le dice en qué zona está: no adivina.
 
 ---
 
@@ -190,7 +267,10 @@ INE) — útil para dar los avisos de la comunidad de un municipio concreto.
 obtenerAvisos(client, codigoArea, now?): Promise<ResultadoAvisos>
 // Descarga el tar.gz, lo descomprime, parsea el CAP y filtra a vigentes. Cacheado.
 
-extraerAvisos(bytes: Uint8Array, now: number): ResultadoAvisos   // función pura
+extraerAvisos(bytes, now, opts?): ResultadoAvisos                // función pura
+// opts: { maxBytesDescomprimidos?, maxEntries?, maxTotalBytes? }
+// Acota la descompresión (def. 64 MiB) y el tar; los excesos lanzan
+// AemetError TOO_LARGE / PARSE.
 parseCapAlert(xml: string, now: number): Aviso | null           // un CAP XML -> Aviso
 claveAviso(a: Aviso): string   // clave estable para deduplicar (p. ej. notificaciones)
 ```
@@ -239,8 +319,23 @@ const registros = await client.fetchJson<Observacion[]>(
 const ultimo = registros[registros.length - 1]; // el más reciente
 ```
 
-`Observacion` incluye: `idema`, `ubi`, `fint`, `ta` (temp °C), `hr` (humedad %),
-`prec` (mm), `vv` (viento m/s), `dv` (dirección °), `pres` (hPa).
+`Observacion` es la forma **cruda** de AEMET: `idema`, `ubi`, `fint`, `ta` (temp
+°C), `hr` (humedad %), `prec` (mm), `vv` (viento **m/s**), `dv` (dirección °),
+`pres` (hPa). Las herramientas MCP la normalizan antes de servirla (viento en km/h,
+fechas con offset); si consumes la librería directamente, `vientoDeObservacion` e
+`isoConOffset` hacen esa misma conversión.
+
+### Estaciones cercanas
+
+```ts
+estacionesCercanas(client, punto, limite = 5): Promise<Array<EstacionResuelta & { distanciaKm: number }>>
+distanciaKm(a, b): number   // haversine
+```
+
+Muchas estaciones del inventario son solo climatológicas y no publican observación:
+hay que probar en orden y quedarse con la primera que responda. Y conviene mirar la
+distancia antes de presentar el dato como si fuera del municipio — la más cercana
+con datos a Ceuta está en Cádiz, a 29,7 km.
 
 ---
 
@@ -265,12 +360,26 @@ Convierten las respuestas en **texto legible** (resumen + datos), como hace el
 servidor MCP. Útiles si quieres el mismo formato en tu backend.
 
 ```ts
-formatDiaria(pred: PrediccionDiariaMunicipio, maxDias: number): string
-formatHoraria(pred: PrediccionHorariaMunicipio, maxDias: number): string
+formatDiaria(pred: PrediccionDiariaMunicipio, dias: DiaDiaria[]): string
+formatHoraria(pred: PrediccionHorariaMunicipio, dias: DiaHoraria[]): string
 formatObservacion(registros: Observacion[], estacionNombre?: string): string
 formatAvisos(ccaa: string, resultado: ResultadoAvisos): string
-formatMunicipios(query: string, resultados: Municipio[]): string
+formatMunicipios(query: string, resultados: Municipio[], isla?: string): string
+
+seleccionarDias<T extends { fecha: string }>(
+  dias: T[],
+  opciones?: { max?: number; desde?: string; hasta?: string },
+): T[]
 ```
+
+> **Cambio en 0.5.0**: `formatDiaria` y `formatHoraria` reciben los días ya
+> seleccionados en vez de un número máximo, para que el texto y los datos
+> estructurados no puedan divergir. `seleccionarDias` construye el argumento:
+>
+> ```ts
+> formatDiaria(pred, seleccionarDias(pred.prediccion.dia, { max: 3 }));
+> formatDiaria(pred, seleccionarDias(pred.prediccion.dia, { desde: "2026-09-12", hasta: "2026-09-13" }));
+> ```
 
 ---
 
@@ -293,7 +402,8 @@ untar(buf: Uint8Array): TarEntry[]     // TarEntry = { name: string; content: Ui
 
 ## Tipos exportados
 
-`AemetClientOptions`, `AemetErrorCode`, `Municipio`, `Aviso`, `NivelAviso`,
+`AemetClientOptions`, `AemetErrorCode`, `Municipio`, `Aviso`, `ZonaAviso`,
+`Punto`, `EstacionResuelta`, `NivelAviso`,
 `ResultadoAvisos`, `EstacionResuelta`, `TarEntry`, `AemetEnvelope`, `Observacion`,
 `EstacionInventario`, `DiaDiaria`, `DiaHoraria`, `PrediccionDiariaMunicipio`,
 `PrediccionHorariaMunicipio`, `PrediccionMunicipio`.

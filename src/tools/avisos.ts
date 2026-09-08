@@ -1,9 +1,18 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { resolverArea, AREAS } from "../aemet/areas.js";
-import { obtenerAvisos } from "../aemet/avisos.js";
-import { formatAvisos } from "../aemet/format.js";
-import { runTool, text, type GetClient } from "./shared.js";
+import { resolverArea, areaParaMunicipio, AREAS } from "../aemet/areas.js";
+import { resolverMunicipio } from "../aemet/municipios.js";
+import { notaNombreCompartido } from "../aemet/homonimos.js";
+import { coordenadasMunicipio } from "../aemet/geo.js";
+import { avisosParaPunto, obtenerAvisos } from "../aemet/avisos.js";
+import { formatAvisos, formatAvisosMunicipio } from "../aemet/format.js";
+import { runTool, structured, type GetClient } from "./shared.js";
+import {
+  aSalidaAvisos,
+  aSalidaAvisosMunicipio,
+  salidaAvisos,
+  salidaAvisosMunicipio,
+} from "./schemas.js";
 
 export function registerAvisosTool(
   server: McpServer,
@@ -26,12 +35,90 @@ export function registerAvisosTool(
               `de área de 2 dígitos. Válidas: ${AREAS.map((a) => a.nombre).join(", ")}.`,
           ),
       },
+      outputSchema: salidaAvisos,
     },
     async ({ area }) =>
       runTool(async () => {
         const ccaa = resolverArea(area);
         const resultado = await obtenerAvisos(getClient(), ccaa.codigo);
-        return text(formatAvisos(ccaa.nombre, resultado));
+        return structured(
+          formatAvisos(ccaa.nombre, resultado),
+          aSalidaAvisos(ccaa, resultado),
+        );
+      }),
+  );
+}
+
+export function registerAvisosMunicipio(
+  server: McpServer,
+  getClient: GetClient,
+): void {
+  server.registerTool(
+    "avisos_municipio",
+    {
+      title: "Avisos meteorológicos de un municipio",
+      description:
+        "Avisos meteorológicos vigentes que afectan a un municipio español concreto. " +
+        "Resuelve la comunidad autónoma sola y, cuando AEMET publica la geometría de " +
+        "las zonas de aviso, filtra por el punto del municipio en lugar de devolver " +
+        "los de toda la comunidad. Preferible a `avisos` cuando se pregunta por un " +
+        "pueblo o ciudad concretos. Si además hace falta el panorama regional, pide " +
+        "`incluirComunidad: true` aquí en vez de llamar después a `avisos`.",
+      inputSchema: {
+        municipio: z
+          .string()
+          .min(1)
+          .describe(
+            "Municipio: nombre ('Granada', 'El Campello') o código INE de 5 dígitos. " +
+              "Ojo con los nombres que son también de comunidad ('Madrid', 'Murcia'): " +
+              "se interpretan como el municipio y la respuesta lo dice en `nota`.",
+          ),
+        incluirComunidad: z
+          .boolean()
+          .optional()
+          .describe(
+            "Devuelve además los avisos del resto de la comunidad. Úsalo cuando " +
+              "interese el contexto regional, y así evitas una segunda llamada a " +
+              "`avisos`. Por defecto false.",
+          ),
+      },
+      outputSchema: salidaAvisosMunicipio,
+    },
+    async ({ municipio, incluirComunidad }) =>
+      runTool(async () => {
+        const client = getClient();
+        const m = resolverMunicipio(municipio);
+        const nota = notaNombreCompartido(municipio, m);
+        const opciones = { nota, incluirComunidad: incluirComunidad ?? false };
+
+        const ccaa = areaParaMunicipio(m.codigo);
+        if (!ccaa) {
+          throw new Error(
+            `No se pudo determinar la comunidad autónoma de ${m.nombreNatural} (${m.codigo}).`,
+          );
+        }
+
+        const resultado = await obtenerAvisos(client, ccaa.codigo);
+
+        // Sin coordenadas no hay filtro posible: se devuelven los de la CCAA
+        // diciéndolo, que es preferible a ocultar un aviso rojo.
+        const punto = await coordenadasMunicipio(client, m.codigo);
+        if (!punto) {
+          return structured(
+            formatAvisosMunicipio(m, ccaa, resultado, resultado.avisos, "comunidad", opciones),
+            aSalidaAvisosMunicipio(m, ccaa, resultado, resultado.avisos, "comunidad", opciones),
+          );
+        }
+
+        const { dentro, sinGeometria, fuera } = avisosParaPunto(resultado.avisos, punto);
+        const avisos = [...dentro, ...sinGeometria];
+        const alcance = sinGeometria.length > 0 ? "comunidad" : "municipio";
+        const conFuera = { ...opciones, fuera };
+
+        return structured(
+          formatAvisosMunicipio(m, ccaa, resultado, avisos, alcance, conFuera),
+          aSalidaAvisosMunicipio(m, ccaa, resultado, avisos, alcance, conFuera),
+        );
       }),
   );
 }
