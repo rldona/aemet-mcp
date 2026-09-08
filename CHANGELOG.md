@@ -9,6 +9,90 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 _Nada por ahora._
 
+## [0.5.0] - 2026-09-08
+
+Correcciones salidas de una **evaluación a ciegas**: se registró el servidor en
+un cliente MCP y otra sesión, sin conocer el código, resolvió cinco preguntas
+reales y anotó dónde la herramienta la hizo tropezar. Casi todo lo de aquí son
+fallos que los tests con mocks no podían ver, porque no son fallos de cálculo
+sino de lo que la respuesta *dice* y de lo que el modelo entiende al leerla.
+
+Hay cambios en la forma del `structuredContent`: de ahí el salto de minor.
+
+### Corregido
+
+- **`observacion_municipio` podía mentir por omisión.** Para Ceuta devolvía la
+  estación de Tarifa —a 29,7 km, en Cádiz y al otro lado del Estrecho— con la
+  misma pinta que una estación dentro del pueblo. Un modelo respondía "en Ceuta
+  hace 23,7 °C" sin nada en el JSON que lo desmintiera. Ahora la respuesta trae
+  `representaAlMunicipio` y una `advertencia` explícita cuando la estación está a
+  más de 20 km o en otra provincia, y en el texto la advertencia va **antes** de
+  los números, no como nota al pie.
+
+- **Forzar una estación sin datos fallaba en silencio.** `estacion: "5000C"`
+  devolvía `estacion: null` y todo a `null`, sin error: no había forma de
+  distinguir "esa estación no publica" de "el servidor se ha roto". Ahora es un
+  error explícito que dice cuál de los dos casos es y ofrece las alternativas.
+
+- **Las candidatas no decían cuáles se habían comprobado.** Cada una lleva
+  `estado`: `con datos`, `sin datos` o `no consultada`. La distinción importa
+  porque la búsqueda para en la primera que responde: llamar "sin datos" a una
+  estación que nadie ha consultado sería inventarse el resultado.
+
+- **"El Hierro" estaba mal resuelto.** Devolvía coincidencias por subcadena
+  —"Cueva del Hierro", en Cuenca— y faltaban dos de los tres municipios de la
+  isla, porque no contienen la palabra. Lo mismo con La Gomera, Menorca o Ibiza.
+  Ahora hay una tabla de las 11 islas de Canarias y Baleares: los nombres de isla
+  se reconocen y devuelven sus municipios, y cada municipio insular lleva su
+  `isla`, que es lo que faltaba para saber cuál de los quince "Valverde" es el de
+  El Hierro.
+
+- **Dos unidades para la misma magnitud.** La predicción daba el viento en km/h y
+  la observación en m/s, sin declararlo: un `velocidad: 2.5` y un `velocidad: 20`
+  eran indistinguibles. Ahora todo va en **km/h**, y la dirección viene siempre en
+  las dos formas (`direccion` como rumbo y `direccionGrados`), venga como venga
+  de AEMET. `"C"` (calma) queda documentado en el schema.
+
+- **Cuatro convenciones de fecha.** `elaborado` sin zona, la observación con
+  `+0000`, los avisos con `+02:00` y algún campo con `-00:00`. Todas salen ya como
+  ISO 8601 con offset explícito. `elaborado` lo publica AEMET sin zona: se
+  interpreta como hora peninsular y el schema dice que esa suposición es nuestra.
+
+### Añadido
+
+- **Unidades dentro del payload.** Cada respuesta con magnitudes trae `unidades`.
+  Estaban en el `outputSchema`, pero en una sesión real el modelo ve el JSON y no
+  el schema, así que no servían de nada donde hacían falta.
+
+- **`desde` / `hasta` en las predicciones.** Para "este fin de semana" había que
+  pedir siete días y descartar cinco. Ahora se acota por rango de fechas.
+
+- **`incluirComunidad` en `avisos_municipio`.** Decía "hay 3 avisos en la
+  comunidad" y enseñaba 1, lo que obligaba a una segunda llamada a `avisos`
+  —gastando cuota— solo para ver el resto. Ahora se piden de una vez.
+
+- **Nota de desambiguación para los nombres compartidos.** "Madrid" es municipio,
+  provincia y comunidad; `avisos_municipio` elegía el municipio en silencio. Sigue
+  eligiéndolo (acierta casi siempre) pero ahora lo dice y explica cómo pedir la
+  otra lectura. En Ceuta y Melilla no dice nada, porque ahí no hay dos lecturas.
+
+- El error de cuota agotada explica que el servidor ya ha reintentado con espera,
+  que repetir de inmediato no sirve y, si AEMET manda `Retry-After`, cuántos
+  segundos faltan. No se inventa un número cuando la cabecera no viene.
+
+### Cambiado
+
+- `avisosParaPunto` devuelve también `fuera`, los avisos con geometría que **no**
+  cubren el punto. Se añadió al descubrir, comprobándolo contra la API real, que
+  restarlos por identidad no funciona: los de `dentro` son copias acotadas a las
+  zonas que cubren el punto, así que el mismo aviso de "Metropolitana y Henares"
+  aparecía a la vez como "te afecta" y como "no te afecta".
+
+- `formatDiaria` y `formatHoraria` reciben los días ya seleccionados en vez de un
+  número máximo, para que texto y datos estructurados no puedan divergir. Afecta
+  a quien use el paquete **como librería**: hay `seleccionarDias` para construir
+  el argumento.
+
 ## [0.4.2] - 2026-09-07
 
 Correcciones salidas de probar el servidor contra la API real de AEMET.

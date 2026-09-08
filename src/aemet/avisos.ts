@@ -238,9 +238,10 @@ export async function obtenerAvisos(
 export function avisosParaPunto(
   avisos: Aviso[],
   punto: Punto,
-): { dentro: Aviso[]; sinGeometria: Aviso[] } {
+): { dentro: Aviso[]; sinGeometria: Aviso[]; fuera: Aviso[] } {
   const dentro: Aviso[] = [];
   const sinGeometria: Aviso[] = [];
+  const fuera: Aviso[] = [];
 
   for (const aviso of avisos) {
     const conGeometria = aviso.zonas.filter((z) => z.poligonos.length > 0);
@@ -251,8 +252,13 @@ export function avisosParaPunto(
     const zonas = conGeometria.filter((z) =>
       z.poligonos.some((p) => puntoEnPoligono(punto, p)),
     );
+    // Los de `dentro` son COPIAS, acotadas a las zonas que cubren el punto. Por
+    // eso `fuera` se devuelve aquí y no se calcula fuera restando por identidad:
+    // quien lo intentara volvería a incluir en "los que no te afectan" el mismo
+    // aviso que acaba de decir que sí te afecta.
     if (zonas.length > 0) dentro.push({ ...aviso, zonas, zona: zonas[0]!.descripcion });
+    else fuera.push(aviso);
   }
 
-  return { dentro, sinGeometria };
+  return { dentro, sinGeometria, fuera };
 }

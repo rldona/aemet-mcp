@@ -24,6 +24,11 @@ export interface Municipio {
   nombreNatural: string;
   /** Provincia, derivada de los dos primeros dígitos del código INE. */
   provincia: string;
+  /**
+   * Isla, para Canarias y Baleares. `undefined` en la península, Ceuta y
+   * Melilla. No sale del INE (que no tiene el concepto): ver `islas.ts`.
+   */
+  isla?: string;
 }
 
 // ---------------------------------------------------------------------------
